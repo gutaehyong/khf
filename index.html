@@ -1321,6 +1321,8 @@ function showDiag(){
   document.body.append(box); ta.select();
 }
 document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.altKey&&(e.key==='d'||e.key==='D'||e.key==='ㅇ'))showDiag();});
+document.querySelector('h1')?.addEventListener('dblclick',showDiag);
+if(/diag|진단/.test(decodeURIComponent(location.hash+location.search)))setTimeout(showDiag,4000);
 function typeCell(r){
   const out=[h('div',{},TYPES[r.type]?.label)];
   if(r.detail&&(r.detail.kind||r.detail.text)) out.push(h('div',{class:'small'},[r.detail.kind,r.detail.text].filter(Boolean).join(' · ')));
