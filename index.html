@@ -676,7 +676,8 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     const res=await fetch(path.startsWith('http')?path:G+path,{method,headers:{Authorization:'Bearer '+await token(opt.scopes),...(body!==undefined&&!(body instanceof Blob)?{'Content-Type':'application/json'}:{}),...(opt.headers||{})},body:body===undefined?undefined:(body instanceof Blob?body:JSON.stringify(body))});
     if((res.status===429||res.status===503||res.status===504)&&tries<5){await new Promise(r=>setTimeout(r,(Number(res.headers.get('Retry-After'))||1+tries)*1000));return gx(method,path,body,opt,tries+1);}
     if(!res.ok){let m='';try{m=(await res.json()).error?.message||'';}catch{}const e=new Error(m||('HTTP '+res.status));e.status=res.status;e.code=res.status===403||res.status===401?'forbidden':'graph';throw e;}
-    return res.status===204||method==='DELETE'?null:res.json();
+    if(res.status===204||res.status===202||method==='DELETE') return null;
+    const txt=await res.text(); return txt?JSON.parse(txt):null;
   }
 
   /* ---------- SharePoint 목록 = 문서 저장소 ---------- */
@@ -838,6 +839,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     await gx('POST','/me/sendMail',{message:{subject,body:{contentType:'Text',content:body},toRecipients:to.map(a=>({emailAddress:{address:a}}))},saveToSentItems:true});
   };
 
+  window.__diag=()=>({me:ME,admins:ADMINS,lists:Object.fromEntries(Object.entries(LISTS).map(([k,n])=>[n,{visible:!!LIDS[k],items:C(k).items.length,accepted:LIDS[k]?docsOf(k).size:0,titles:C(k).items.map(it=>(it.fields?.Title||'')+' <- '+(emailOf(it)||'(작성자 메일 없음)')).slice(0,40)}]))});
   window.claude={async use(name){await ready;return {db,user,assets,downloads}[name]||null;}};
 
   /* ---------- 시작 ---------- */
@@ -1283,12 +1285,16 @@ function periodText(r){
 function showNotify(boxId,to,subject,body){
   if(window.__sendMail){
     const mails=[...new Set(to.map(u=>String(u).includes('@')?String(u):emailOf(u)).filter(Boolean))];
-    if(mails.length) window.__sendMail(mails,subject,body+'\n\n휴가 관리: '+APP_URL).then(()=>{notice(`${to.map(nameOf).join(', ')}님에게 알림 메일을 보냈어요.`);setTimeout(()=>notice(''),5000);}).catch(e=>{console.warn(e);notice('알림 메일을 보내지 못했어요. 결재자에게 직접 알려 주세요.');});
+    if(mails.length){window.__sendMail(mails,subject,body+'\n\n휴가 관리: '+APP_URL).then(()=>{notice(`${to.map(nameOf).join(', ')}님(${mails.join(', ')})에게 알림 메일을 보냈어요.`);setTimeout(()=>notice(''),6000);}).catch(e=>{console.warn(e);notice(`알림 메일을 보내지 못했어요 (${e.status||''} ${e.message||''}). 아래 문구를 복사해 직접 알려 주세요.`);showManual(boxId,to,subject,body);});return;}
+    if(to.length){notice('결재자 메일 주소가 등록되지 않아 메일을 보내지 못했어요. 관리 › 직원 정보에서 메일을 넣어 주세요.');showManual(boxId,to,subject,body);}
+    return;
   }
-  return;
+  showManual(boxId,to,subject,body);
+}
+function showManual(boxId,to,subject,body){
   const box=$(boxId); if(!box) return;
   if(!to.length){box.classList.add('hidden');return;}
-  const mails=to.map(emailOf).filter(Boolean), names=to.map(nameOf).join(', ');
+  const mails=to.map(u=>String(u).includes('@')?String(u):emailOf(u)).filter(Boolean), names=to.map(nameOf).join(', ');
   const text=`${subject}\n${body}\n\n휴가 관리: ${APP_URL}`;
   const ta=h('textarea',{readonly:true},text);
   const copy=h('button',{class:'btn ghost sm',type:'button',onclick:async()=>{try{await navigator.clipboard.writeText(text);}catch{ta.select();document.execCommand('copy');}copy.textContent='복사했어요';setTimeout(()=>copy.textContent='알림 문구 복사',2000);}},'알림 문구 복사');
@@ -1304,6 +1310,17 @@ function showNotify(boxId,to,subject,body){
     h('div',{class:'muted small'},'메일 초안 받기를 누르고 받은 파일(.eml)을 열면 받는 사람·제목·본문이 채워진 Outlook 새 메일 창이 떠요. 보내기만 누르면 돼요. 메신저로 보내려면 문구를 복사하세요.'),ta);
   box.classList.remove('hidden');
 }
+function showDiag(){
+  let info;
+  try{
+    const reqs=allRequests().filter(r=>ev(r).status==='pending').map(r=>{const e=ev(r),st=e.steps[e.idx];return {신청자:r.uid,기간:r.start,결재선:(r.steps||[]).map(stepLabel).join('>'),지금단계:stepLabel(st),내가결재가능:canAct(r),내직위맞음:typeof st==='string'?fits(posAt(S.me,TODAY),st):null,범위맞음:typeof st==='string'?scopeOK(st,r.uid,S.me):null,신청자소속:P(r.uid).bureau||'',내소속:P(S.me).bureau||''};});
+    info={나:S.me,직위:posAt(S.me,TODAY),관리자:S.isAdmin,명단연결:Object.keys(C().people),결재중:reqs,저장소:window.__diag?window.__diag():null};
+  }catch(e){info={오류:String(e)};}
+  const ta=h('textarea',{readonly:true,style:'width:100%;height:60vh;font-family:monospace;font-size:12px'},JSON.stringify(info,null,2));
+  const box=h('div',{class:'modal',onclick:e=>{if(e.target===box)box.remove();}},h('div',{class:'modal-card'},h('div',{class:'row between',style:'margin-bottom:8px'},h('b',{},'진단 정보 (이 내용을 복사해 보내 주세요)'),h('button',{class:'btn ghost sm',type:'button',onclick:()=>box.remove()},'닫기')),ta));
+  document.body.append(box); ta.select();
+}
+document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.altKey&&(e.key==='d'||e.key==='D'||e.key==='ㅇ'))showDiag();});
 function typeCell(r){
   const out=[h('div',{},TYPES[r.type]?.label)];
   if(r.detail&&(r.detail.kind||r.detail.text)) out.push(h('div',{class:'small'},[r.detail.kind,r.detail.text].filter(Boolean).join(' · ')));
