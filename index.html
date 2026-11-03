@@ -850,6 +850,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     },
     async delete(id){try{await gx('DELETE',`/sites/${SITE}/drive/items/${id}`);}catch(e){if(e.status!==404)throw e;}}
   };
+  window.__fileUrl=async id=>{const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,name,webUrl`);return it.webUrl;};
   window.__blob=async id=>{const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,@microsoft.graph.downloadUrl`);const r=await fetch(it['@microsoft.graph.downloadUrl']);if(!r.ok)throw new Error('download');return r.blob();};
 
   /* ---------- 내려받기·메일 ---------- */
@@ -1286,6 +1287,12 @@ function writeErr(e,el){
 
 /* ---------- 신청 폼 ---------- */
 function openFile(f){
+  if(window.__fileUrl){  // M365: SharePoint 보기 화면으로 열기 (보기·내려받기 모두 그 화면에서)
+    const w=window.open('about:blank','_blank');
+    window.__fileUrl(f.id).then(u=>{if(w&&!w.closed)w.location.href=u;else location.href=u;})
+      .catch(e=>{console.error(e);if(w&&!w.closed)w.close();notice(`파일을 열지 못했어요${e?.status===404?' (파일이 삭제됐어요)':e?.status===403?' (이 파일을 볼 권한이 없어요)':''}.`);});
+    return;
+  }
   let url=null;
   const close=()=>{box.remove();if(url)URL.revokeObjectURL(url);document.removeEventListener('keydown',esc);};
   const esc=e=>{if(e.key==='Escape')close();};
