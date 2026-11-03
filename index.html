@@ -1221,6 +1221,7 @@ function splitConfig(full){
   return {pub,hr};
 }
 function writeConfig(m){
+  if(S.isAdmin&&!S.hrOK&&Object.keys((S.pubConfig||{}).roster||{}).length){notice("인사 정보(Leave_HR)를 읽을 수 없어 입사일이 비어 보여요. SharePoint 사이트 '소유자'로 추가돼야 관리 기능을 쓸 수 있어요. 그 전에는 저장을 막아 두었어요.");return Promise.reject(Object.assign(new Error('hr'),{code:'hr'}));}
   return serial('config/main',async()=>{
     const next=clone(S.rawConfig); m(next);
     const {pub,hr}=splitConfig(next);
@@ -1243,6 +1244,7 @@ function compose(){
   S.leaves=L;
 }
 function writeErr(e,el){
+  if(e?.code==='hr') return;
   console.error(e);
   if(e?.code==='invalid_argument'){S.readOnly=true;notice('이 페이지 권한이 보기 전용이라 저장할 수 없어요. 관리자에게 기여자(Contributor) 이상으로 공유해 달라고 요청하세요.');render();}
   else if(e?.code==='quota_exceeded') notice('저장 공간이 가득 찼어요. 관리자가 오래된 신청을 정리해야 해요.');
@@ -1962,7 +1964,7 @@ function renderAdmin(){
       const p=P(u);
       const link=byUid[u]?h('span',{class:'badge b-approved'},'연결됨'):
         unlinked.length?h('select',{style:'width:auto',onchange:e=>{if(e.target.value)linkManual(e.target.value,u);}},h('option',{value:''},'명단에서 고르기'),unlinked.map(([k,x])=>h('option',{value:k},x.name+(x.email?` (${x.email})`:'')))):h('span',{class:'muted small'},'명단에 없음');
-      const pos=h('select',{onchange:e=>setPerson(u,'pos',e.target.value)},[...new Set([...posNames(),p.pos||'담당'])].map(x=>h('option',{value:x,selected:x===(p.pos||'담당')},x)));
+      const pos=h('select',{style:'min-width:86px',onchange:e=>setPerson(u,'pos',e.target.value)},[...new Set([...posNames(),p.pos||'담당'])].map(x=>h('option',{value:x,selected:x===(p.pos||'담당')},x)));
       const txt=(f,ph)=>h('input',{type:'text',value:p[f]||'',placeholder:ph,maxlength:'20',list:f==='team'?'teamList':'bureauList',style:'width:120px',onchange:e=>setPerson(u,f,e.target.value.trim())});
       const date=f=>h('input',{type:'date',value:p[f]||'',onchange:e=>setPerson(u,f,e.target.value)});
       tb.append(h('tr',{},h('td',{},personEl(u)),h('td',{},pos),h('td',{},txt('bureau','예: 사업국')),h('td',{},txt('team','예: 기획팀')),h('td',{},date('hire')),h('td',{},date('end')),h('td',{},mailInput(u)),h('td',{},link),h('td',{},adminBox(u))));
@@ -1971,7 +1973,7 @@ function renderAdmin(){
       const set=(f,v)=>writeConfig(c=>{const r=c.roster&&c.roster[k];if(r)r[f]=v||'';}).catch(writeErr);
       const txt=(f,ph)=>h('input',{type:'text',value:x[f]||'',placeholder:ph,maxlength:'20',list:f==='team'?'teamList':'bureauList',style:'width:120px',onchange:e=>set(f,e.target.value.trim())});
       const date=f=>h('input',{type:'date',value:x[f]||'',onchange:e=>set(f,e.target.value)});
-      const pos=h('select',{onchange:e=>set('pos',e.target.value)},[...new Set([...posNames(),x.pos||'담당'])].map(n=>h('option',{value:n,selected:n===(x.pos||'담당')},n)));
+      const pos=h('select',{style:'min-width:86px',onchange:e=>set('pos',e.target.value)},[...new Set([...posNames(),x.pos||'담당'])].map(n=>h('option',{value:n,selected:n===(x.pos||'담당')},n)));
       const nm=h('input',{type:'text',value:x.name||'',maxlength:'20',style:'width:110px;font-weight:600','aria-label':'이름',onchange:e=>{const v=e.target.value.trim();if(v)set('name',v);}});
       tb.append(h('tr',{},h('td',{},nm,h('div',{class:'muted small'},'아직 접속 전')),h('td',{},pos),h('td',{},txt('bureau','예: 사무국')),h('td',{},txt('team','예: 기획관리팀')),h('td',{},date('hire')),h('td',{},date('end')),h('td',{},mailInput(k)),
         h('td',{},armBtn('rm'+k,'명단에서 빼기','정말 뺄까요?',()=>writeConfig(c=>{if(c.roster)delete c.roster[k];}).catch(writeErr))),h('td',{},adminBox(k))));
@@ -2161,7 +2163,7 @@ async function ensureMine(){
     compose();recompute();render();},onErr);
   coll('leaves','priv'); coll('cal','cal'); coll('pro','pro'); coll('decisions','decisions'); coll('approvals','approvals'); coll('comp','comp');
   db.doc('config/main').onSnapshot(snap=>{S.pubConfig=snap.exists?snap.data():{};for(const k in natCache)delete natCache[k];compose();recompute();render();},onErr);
-  db.doc('hr/main').onSnapshot(snap=>{S.hr=snap.exists?snap.data():{};compose();recompute();render();},onErr);
+  db.doc('hr/main').onSnapshot(snap=>{S.hr=snap.exists?snap.data():{};S.hrOK=snap.exists;if(S.isAdmin&&!snap.exists&&Object.keys((S.pubConfig||{}).roster||{}).length)notice("인사 정보(Leave_HR)를 읽을 수 없어 입사일이 비어 보여요. SharePoint 사이트 '소유자'로 추가돼야 관리 기능을 쓸 수 있어요. 그 전에는 저장을 막아 두었어요.");compose();recompute();render();},onErr);
 })();
 </script>
 </body>
