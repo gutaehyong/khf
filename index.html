@@ -57,6 +57,9 @@ h3{font-size:14px;font-weight:600;margin:18px 0 8px}
 .blocks{display:grid;grid-template-columns:repeat(auto-fill,minmax(24px,1fr));gap:5px}
 .blk{aspect-ratio:1;border-radius:5px;background:var(--cell);position:relative;overflow:hidden}
 .blk.sched{background:transparent;border:1.5px dashed var(--line)}
+.blk .bn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--ink);text-shadow:0 0 3px var(--surface),0 0 2px var(--surface);font-variant-numeric:tabular-nums;z-index:1;pointer-events:none}
+.blk.used .bn{color:var(--accent-ink);text-shadow:none}
+.blk.sched .bn{opacity:.6}
 .blk .f{position:absolute;inset:0 auto 0 0;background:var(--accent)}
 .blk .p{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(135deg,var(--warn) 0 3px,transparent 3px 6px)}
 .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:12px}
@@ -1592,12 +1595,13 @@ function renderMine(){
   const n=Math.ceil(total/hpd-1e-9), ns=Math.ceil(b.sched/hpd-1e-9);
   for(let i=0;i<n;i++){
     const lo=i*hpd, fu=Math.max(0,Math.min(hpd,b.used-lo))/hpd, fp=Math.max(0,Math.min(hpd,b.used+b.pend-lo))/hpd-fu;
-    const el=h('div',{class:'blk'});
+    const el=h('div',{class:'blk'+(fu>=1?' used':''),title:`${i+1}일째`+(fu>=1?' · 사용':fu>0?' · 반일 사용':fp>0?' · 결재 중':'')});
     if(fu>0) el.append(h('div',{class:'f',style:`width:${fu*100}%`}));
     if(fp>0) el.append(h('div',{class:'p',style:`left:${fu*100}%;width:${fp*100}%`}));
+    el.append(h('span',{class:'bn'},i+1));
     box.append(el);
   }
-  for(let i=0;i<ns;i++) box.append(h('div',{class:'blk sched'}));
+  for(let i=0;i<ns;i++) box.append(h('div',{class:'blk sched',title:`${n+i+1}일째 · 발생 예정`},h('span',{class:'bn'},n+i+1)));
   const gl=$('grantList'); gl.replaceChildren();
   for(const g of b.list) gl.append(h('li',{class:g.future?'future':''},h('span',{},(g.date?fmtD(g.date)+' ':'')+g.label+(g.future?' (예정)':'')),h('span',{},fmtH(g.hours))));
   // side
