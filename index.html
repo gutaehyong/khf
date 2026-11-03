@@ -302,7 +302,7 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
             <input type="text" id="oText" maxlength="200" placeholder="예: 2026년 예비군 기본훈련 (OO과학화훈련장)">
           </label>
           <div class="f s6" style="grid-column:1/-1">
-            <span>증빙 서류 첨부 (스캔본 이미지·PDF, 최대 5개, 개당 20MB)</span>
+            <span>증빙 서류 첨부 (선택 · 스캔본 이미지·PDF, 최대 5개, 개당 20MB)</span>
             <div class="row"><label class="btn ghost sm" style="cursor:pointer">파일 고르기<input type="file" id="oFiles" accept="image/*,application/pdf" multiple class="hidden"></label><span class="muted small" id="oNote">주민등록번호 뒷자리 등 불필요한 개인정보는 가리고 올려 주세요.</span></div>
             <div class="files" id="oList"></div>
           </div>
@@ -1358,7 +1358,7 @@ function typeCell(r){
   if(r.detail&&(r.detail.kind||r.detail.text)) out.push(h('div',{class:'small'},[r.detail.kind,r.detail.text].filter(Boolean).join(' · ')));
   else if(r.reason) out.push(h('div',{class:'muted small'},r.reason));
   if(r.files&&r.files.length) out.push(h('div',{class:'files'},r.files.map(f=>h('button',{type:'button',class:'file',title:f.name+' 열기',onclick:()=>openFile(f)},(f.type==='application/pdf'?'📄 ':'🖼 ')+f.name))));
-  else if(r.type==='official'&&!r.imported) out.push(h('div',{class:'note'},'증빙 첨부 없음'));
+  else if(r.type==='official'&&!r.imported) out.push(h('div',{class:'muted small'},'첨부 없음'));
   return out;
 }
 S.oFiles=[];
@@ -1408,7 +1408,6 @@ function validate(f){
   const kind=TYPES[f.type].pool;
   if(f.type==='official'){
     if(!$('oText').value.trim()) return '공가 사유·내용을 적어 주세요.';
-    if(S.assets&&!S.oFiles.length) return '공가 증빙 서류(스캔본)를 첨부해 주세요.';
   }
   if(kind){const b=pool(S.me,fyOf(f.start),kind);const avail=b.remain-b.pend;
     if(f.hours>avail) return `${TYPES[f.type].label} 잔여(${fmtH(avail)}, 결재 중 제외)보다 많아요.`;}
