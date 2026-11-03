@@ -1206,7 +1206,17 @@ function writeDoc(path,cur,mutate){
 }
 /* 개인정보 분리: 사유·입사일 등은 본인과 관리자만 읽을 수 있는 곳에 저장 */
 const SENS=['hire','adj','prior'];
-const pubReq=r=>{const c={...r};delete c.reason;return c;}; // 공가 detail·files는 결재자 확인용으로 남김
+const pubReq=r=>({...r}); // 사유·공가 증빙은 결재자가 볼 수 있도록 캘린더 사본에도 남김 (화면에는 본인·결재자·관리자에게만 표시)
+let syncT=null;
+function syncCal(){  // 관리자 화면에서 캘린더 사본이 원본과 다르면 맞춰 줌 (예전 신청의 사유 반영)
+  if(!S.isAdmin||!S.db) return; clearTimeout(syncT);
+  syncT=setTimeout(async()=>{
+    for(const [u,d] of Object.entries(S.priv||{})){
+      const want={requests:(d.requests||[]).map(pubReq)}, have=(S.cal||{})[u];
+      if(JSON.stringify(want)!==JSON.stringify(have||{requests:[]})){try{await S.db.doc('cal/'+u).set(want);}catch(e){console.warn('cal sync',u,e);}}
+    }
+  },3000);
+}
 function writeLeaves(u,m){
   return serial('leaves/'+u,async()=>{
     const next=clone(S.priv[u]||S.leaves[u]||{requests:[]}); if(!Array.isArray(next.requests))next.requests=[]; m(next);
@@ -1236,6 +1246,7 @@ function writeConfig(m){
   });
 }
 function compose(){
+  syncCal();
   const pub=clone(S.pubConfig||{}), hr=S.hr||{};
   for(const [k,x] of Object.entries(pub.roster||{})) Object.assign(x,(hr.roster||{})[k]||{});
   pub.people=pub.people||{};
