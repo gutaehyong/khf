@@ -432,10 +432,11 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
         <form class="req" id="admForm" novalidate>
           <label class="f">직원 <select id="aWho"></select></label>
           <label class="f">종류 <select id="aType"></select></label>
-          <label class="f">단위 <select id="aUnit"><option value="day">종일</option><option value="am">오전 반일</option><option value="pm">오후 반일</option><option value="hour">시간</option></select></label>
+          <label class="f" id="aUnitW">단위 <select id="aUnit"><option value="day">종일</option><option value="am">오전 반일</option><option value="pm">오후 반일</option><option value="hour">시간</option></select></label>
           <label class="f">시작일 <input type="date" id="aStart"></label>
           <label class="f" id="aEndW">종료일 <input type="date" id="aEnd"></label>
-          <label class="f s1 hidden" id="aHoursW">시간 <select id="aHours"></select></label>
+          <label class="f s1 hidden" id="aTimeW">시작 시각 <select id="aTime"></select></label>
+          <label class="f s1 hidden" id="aHoursW"><span id="aHoursL">시간</span> <input type="number" id="aHours" min="0.5" max="24" step="0.5" value="1"></label>
           <label class="f s3">사유 (선택) <input type="text" id="aReason" maxlength="120" placeholder="예: 11/2 연차 (사후 등록)"></label>
           <div class="msg" id="aMsg" role="status"></div>
           <div class="form-foot"><span class="summary" id="aSum"></span><button class="btn" type="submit">승인된 기록으로 등록</button></div>
@@ -1892,31 +1893,36 @@ function admPeople(){const R=C().roster||{};return Object.entries(R).filter(([k,
 function fillAdmForm(){
   const w=$('aWho'),cur=w.value; if(document.activeElement===w) return;
   w.replaceChildren(...admPeople().map(p=>h('option',{value:p.k,selected:p.k===cur},p.label)));
-  const t=$('aType'); if(!t.options.length){for(const [k,v] of Object.entries(TYPES)) if(!v.grant) t.append(h('option',{value:k},v.label));}
-  const hs=$('aHours'); if(!hs.options.length){for(let n=1;n<=7;n++) hs.append(h('option',{value:n},n+'시간'));}
+  const t=$('aType'); if(!t.options.length){for(const [k,v] of Object.entries(TYPES)) t.append(h('option',{value:k},v.grant?'대체휴가 부여 (휴일근무 발생)':v.label));}
+  const tm=$('aTime'); if(!tm.options.length){for(let x=9;x<=17;x++)for(const mm of ['00','30'])tm.append(h('option',{value:`${pad(x)}:${mm}`},`${pad(x)}:${mm}`));}
   if(!$('aStart').value){$('aStart').value=TODAY;$('aEnd').value=TODAY;}
   admSum();
 }
 function admState(){
-  const unit=$('aUnit').value,start=$('aStart').value,end=unit==='day'?($('aEnd').value||start):start;
-  let hours=0; if(start&&end>=start) hours=unit==='day'?workdays(start,end)*HPD():unit==='hour'?Number($('aHours').value):HPD()/2;
-  return {k:$('aWho').value,type:$('aType').value,unit,start,end,hours,reason:$('aReason').value.trim()};
+  const type=$('aType').value, grant=!!TYPES[type]?.grant;
+  const unit=grant?'grant':$('aUnit').value,start=$('aStart').value,end=unit==='day'?($('aEnd').value||start):start;
+  let hours=0; if(start&&end>=start) hours=grant||unit==='hour'?Number($('aHours').value)||0:unit==='day'?workdays(start,end)*HPD():HPD()/2;
+  return {k:$('aWho').value,type,unit,start,end,hours,time:unit==='hour'?$('aTime').value:null,reason:$('aReason').value.trim()};
 }
-function admSum(){const f=admState();$('aEndW').classList.toggle('hidden',f.unit!=='day');$('aHoursW').classList.toggle('hidden',f.unit!=='hour');$('aSum').textContent=f.hours?`${fmtH(f.hours)} 등록`:'';}
-['aUnit','aStart','aEnd','aHours','aType'].forEach(id=>$(id).addEventListener('change',admSum));
+function admSum(){const f=admState(),g=f.unit==='grant';
+  $('aUnitW').classList.toggle('hidden',g);$('aEndW').classList.toggle('hidden',f.unit!=='day');$('aTimeW').classList.toggle('hidden',f.unit!=='hour');
+  $('aHoursW').classList.toggle('hidden',!(g||f.unit==='hour'));$('aHoursL').textContent=g?'부여 시간':'사용 시간';
+  $('aSum').textContent=f.hours?`${fmtH(f.hours)}${f.unit==='hour'||g?` (${f.hours}시간)`:''} ${g?'부여':'사용'} 등록`:'';}
+['aUnit','aStart','aEnd','aHours','aType','aTime'].forEach(id=>{$(id).addEventListener('change',admSum);$(id).addEventListener('input',admSum);});
 $('admForm').addEventListener('submit',e=>{
   e.preventDefault(); const f=admState(), m=$('aMsg');
   const fail=t=>{m.textContent=t;m.className='msg err';};
   if(!f.k) return fail('직원을 골라 주세요.');
   if(!f.start||f.end<f.start) return fail('날짜를 확인해 주세요.');
-  if(!(f.hours>0)) return fail('근무일이 없는 기간이에요.');
+  if(!(f.hours>0)) return fail(f.unit==='hour'||f.unit==='grant'?'시간을 입력해 주세요.':'근무일이 없는 기간이에요.');
+  if(f.unit==='hour'&&f.hours>=HPD()) return fail(`시간 단위는 ${HPD()}시간보다 적어야 해요. 하루 전체면 종일을 골라 주세요.`);
   if(fyOf(f.start)!==fyOf(f.end)) return fail('회계연도가 바뀌는 기간은 나눠서 등록해 주세요.');
   const R=C().roster||{}, x=R[f.k], u=x?.uid||f.k;
-  const clash=reqsOf(u).filter(r=>ev({...r,uid:u}).status!=='rejected').some(r=>!(f.end<r.start||f.start>(r.end||r.start))&&!TYPES[r.type]?.grant);
+  const clash=f.unit!=='grant'&&reqsOf(u).filter(r=>ev({...r,uid:u}).status!=='rejected').some(r=>!(f.end<r.start||f.start>(r.end||r.start))&&!TYPES[r.type]?.grant);
   const r={id:'adm'+Date.now().toString(36),type:f.type,unit:f.unit,start:f.start,end:f.end,hours:f.hours,reason:f.reason,steps:[],imported:true,adminAdded:S.me,createdAt:Date.now()};
-  if(f.unit==='hour') r.time='09:00';
+  if(f.unit==='hour') r.time=f.time||'09:00';
   writeConfig(c=>{const t=c.roster&&c.roster[f.k];if(!t)return;t.hist=t.hist||[];t.hist.push(r);})
-    .then(()=>{m.className='msg good';m.textContent=`${x?.name||''}님 ${TYPES[f.type].label} ${fmtH(f.hours)}을 승인된 기록으로 등록했어요.`+(clash?' (같은 기간에 다른 기록이 있으니 겹치지 않는지 확인해 주세요.)':'');$('aReason').value='';})
+    .then(()=>{m.className='msg good';m.textContent=`${x?.name||''}님 ${TYPES[f.type].label} ${fmtH(f.hours)}${f.unit==='hour'||f.unit==='grant'?`(${f.hours}시간)`:''}을 승인된 기록으로 등록했어요.`+(clash?' (같은 기간에 다른 기록이 있으니 겹치지 않는지 확인해 주세요.)':'');$('aReason').value='';})
     .catch(writeErr);
 });
 function savePos(fn){return writeConfig(c=>{c.positions=clone(positions());fn(c.positions,c);}).catch(writeErr);}
