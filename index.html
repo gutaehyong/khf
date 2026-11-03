@@ -405,7 +405,7 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
         <h2>직원 정보</h2>
         <p class="muted small" style="margin:-6px 0 12px">명단의 직원이 처음 로그인하면 명단의 메일 주소나 이름으로 자동 연결돼요. 이름이 다르거나 동명이인이면 ‘명단에서 고르기’로 직접 연결해 주세요. 연결되기 전까지는 결재와 연차 계산에 들어가지 않아요. 연결된 직원은 여기서 바로 고칠 수도 있어요.</p>
         <div class="tbl-wrap"><table>
-          <thead><tr><th>직원</th><th>직위</th><th>국</th><th>팀</th><th>입사일</th><th>퇴사일</th><th>메일</th><th>명단</th></tr></thead>
+          <thead><tr><th>직원</th><th>직위</th><th>국</th><th>팀</th><th>입사일</th><th>퇴사일</th><th>메일</th><th>명단</th><th>관리자</th></tr></thead>
           <tbody id="peopleRows"></tbody>
         </table></div>
       </section>
@@ -1409,7 +1409,9 @@ async function decide(r,v,note){
 }
 async function cancelMine(id){const r=(S.priv[S.me]?.requests||[]).find(x=>x.id===id);try{await writeLeaves(S.me,d=>{d.requests=d.requests.filter(x=>x.id!==id);});if(r)await deleteFiles(r);}catch(e){writeErr(e);}}
 async function adminSet(r,status){
-  try{await serial('approvals/'+r.id,()=>status?S.db.doc('approvals/'+r.id).set({status,by:S.me,at:Date.now(),u:r.uid,sig:sig(r)}):S.db.doc('approvals/'+r.id).delete());}catch(e){writeErr(e);}
+  try{await serial('approvals/'+r.id,()=>status?S.db.doc('approvals/'+r.id).set({status,by:S.me,at:Date.now(),u:r.uid,sig:sig(r)}):S.db.doc('approvals/'+r.id).delete());
+    if(status){const label=TYPES[r.type]?.label||'휴가';showNotify('decNotify',[r.uid],`[휴가 결재 결과] ${label} ${status==='approved'?'승인':'반려'}`,`${nameOf(r.uid)}님, 신청하신 ${label}가 관리자(${nameOf(S.me)}) 처리로 ${status==='approved'?'최종 승인':'반려'}되었어요.\n기간: ${periodText(r)}`);}
+  }catch(e){writeErr(e);}
 }
 async function adminDelete(r){
   if(r.imported) return writeConfig(c=>{for(const x of Object.values(c.roster||{}))if(x.hist)x.hist=x.hist.filter(z=>z.id!==r.id);}).catch(writeErr);
@@ -1822,6 +1824,14 @@ $('rpFy').addEventListener('change',e=>{S.fy=Number(e.target.value);S.rpMi=null;
 $('rpPrint').addEventListener('click',()=>{try{window.print();}catch(e){notice('인쇄 창을 열 수 없어요. 엑셀로 내려받아 인쇄해 주세요.');}});
 $('rpXlsx').addEventListener('click',reportXlsx);
 
+function adminBox(u){
+  const mail=String(u).includes('@')?String(u):emailOf(u);
+  if(!mail) return h('span',{class:'muted small'},'메일 입력 후 지정');
+  const on=(C().admins||[]).map(x=>x.toLowerCase()).includes(mail.toLowerCase()), self=mail===S.me;
+  return h('label',{class:'row',style:'gap:6px;flex-wrap:nowrap',title:self?'본인의 관리자 권한은 여기서 해제할 수 없어요':''},
+    h('input',{type:'checkbox',style:'width:auto',checked:on,disabled:self,onchange:e=>{const v=e.target.checked;writeConfig(c=>{const set=new Set((c.admins||[]).map(x=>x.toLowerCase()));v?set.add(mail.toLowerCase()):set.delete(mail.toLowerCase());c.admins=[...set];}).then(()=>{if(v)notice(`${nameOf(u)}님을 관리자로 지정했어요. SharePoint 사이트 "휴가출장관리 소유자" 그룹에도 추가해야 관리 기능을 저장할 수 있어요.`);}).catch(writeErr);}}),
+    on?'관리자':'');
+}
 function mailInput(u){
   const R=C().roster||{}; let k=R[u]?u:Object.keys(R).find(x=>R[x].uid===u);
   if(!k) return h('span',{class:'muted small'},'명단 연결 후 입력');
@@ -1955,7 +1965,7 @@ function renderAdmin(){
       const pos=h('select',{onchange:e=>setPerson(u,'pos',e.target.value)},[...new Set([...posNames(),p.pos||'담당'])].map(x=>h('option',{value:x,selected:x===(p.pos||'담당')},x)));
       const txt=(f,ph)=>h('input',{type:'text',value:p[f]||'',placeholder:ph,maxlength:'20',list:f==='team'?'teamList':'bureauList',style:'width:120px',onchange:e=>setPerson(u,f,e.target.value.trim())});
       const date=f=>h('input',{type:'date',value:p[f]||'',onchange:e=>setPerson(u,f,e.target.value)});
-      tb.append(h('tr',{},h('td',{},personEl(u)),h('td',{},pos),h('td',{},txt('bureau','예: 사업국')),h('td',{},txt('team','예: 기획팀')),h('td',{},date('hire')),h('td',{},date('end')),h('td',{},mailInput(u)),h('td',{},link)));
+      tb.append(h('tr',{},h('td',{},personEl(u)),h('td',{},pos),h('td',{},txt('bureau','예: 사업국')),h('td',{},txt('team','예: 기획팀')),h('td',{},date('hire')),h('td',{},date('end')),h('td',{},mailInput(u)),h('td',{},link),h('td',{},adminBox(u))));
     }
     for(const [k,x] of unlinked){
       const set=(f,v)=>writeConfig(c=>{const r=c.roster&&c.roster[k];if(r)r[f]=v||'';}).catch(writeErr);
@@ -1964,7 +1974,7 @@ function renderAdmin(){
       const pos=h('select',{onchange:e=>set('pos',e.target.value)},[...new Set([...posNames(),x.pos||'담당'])].map(n=>h('option',{value:n,selected:n===(x.pos||'담당')},n)));
       const nm=h('input',{type:'text',value:x.name||'',maxlength:'20',style:'width:110px;font-weight:600','aria-label':'이름',onchange:e=>{const v=e.target.value.trim();if(v)set('name',v);}});
       tb.append(h('tr',{},h('td',{},nm,h('div',{class:'muted small'},'아직 접속 전')),h('td',{},pos),h('td',{},txt('bureau','예: 사무국')),h('td',{},txt('team','예: 기획관리팀')),h('td',{},date('hire')),h('td',{},date('end')),h('td',{},mailInput(k)),
-        h('td',{},armBtn('rm'+k,'명단에서 빼기','정말 뺄까요?',()=>writeConfig(c=>{if(c.roster)delete c.roster[k];}).catch(writeErr)))));
+        h('td',{},armBtn('rm'+k,'명단에서 빼기','정말 뺄까요?',()=>writeConfig(c=>{if(c.roster)delete c.roster[k];}).catch(writeErr))),h('td',{},adminBox(k))));
     }
     const vals=f=>[...new Set([...Object.values(C().roster||{}).map(x=>x[f]),...Object.values(C().people).map(x=>x[f])].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
     for(const [id,f] of [['teamList','team'],['bureauList','bureau']]){let dl=document.getElementById(id);if(!dl){dl=h('datalist',{id});document.body.append(dl);}dl.replaceChildren(...vals(f).map(v=>h('option',{value:v})));}
