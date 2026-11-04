@@ -294,6 +294,7 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
         <label class="f">사유 (선택)
           <input type="text" id="fReason" maxlength="120" placeholder="본인과 결재자만 볼 수 있어요">
         </label>
+        <label class="f s4 hidden" id="wFrom">사용할 휴일근무분 <select id="fFrom"></select></label>
         <div class="offbox hidden" id="offBox">
           <label class="f">공가 구분
             <select id="oKind"><option>예비군·민방위 훈련</option><option>법원·관공서 출석</option><option>건강검진</option><option>선거 투표</option><option>감염병 격리</option><option>기타</option></select>
@@ -330,7 +331,8 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
     </section>
 
     <section class="panel">
-      <h2>내 신청 내역</h2>
+      <div class="row between" style="margin-bottom:12px"><h2 style="margin:0">내 신청 내역</h2><span class="muted small" id="mySum"></span></div>
+      <div class="seg" id="myFilter" role="group" aria-label="종류별 보기" style="max-width:520px;margin-bottom:12px"></div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>기간</th><th>종류</th><th class="num">사용</th><th>결재</th><th>상태</th><th></th></tr></thead>
         <tbody id="myRows"></tbody>
@@ -1189,7 +1191,7 @@ function lineEl(r){
   e.steps.forEach((s,i)=>{
     if(i) wrap.append(h('span',{class:'sep'},'›'));
     const d=e.done[i]; let cls='st',txt=stepLabel(s);
-    if(d){cls+=d.v==='approved'?' done':' no';txt=`${stepLabel(s)} ${nameOf(d.by)}`;}
+    if(d){cls+=d.v==='approved'?' done':' no';txt=typeof s==='object'?nameOf(d.by):`${stepLabel(s)} ${nameOf(d.by)}`;}
     else if(e.status==='pending'&&i===e.idx) cls+=' now';
     wrap.append(h('span',{class:cls,title:d?`${STATUS[d.v]} · ${new Date(d.at).toLocaleDateString('ko-KR')}`:''},txt));
   });
@@ -1360,8 +1362,34 @@ function showDiag(){
 document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.altKey&&(e.key==='d'||e.key==='D'||e.key==='ㅇ'))showDiag();});
 document.querySelector('h1')?.addEventListener('dblclick',showDiag);
 if(/diag|진단/.test(decodeURIComponent(location.hash+location.search)))setTimeout(showDiag,4000);
+/* 대체휴가: 어느 휴일근무분을 쓰는지 연결 (지정한 근무분 → 나머지는 오래된 근무분부터 자동) */
+function compAlloc(u,fy){
+  const grants=[];
+  for(const r of reqsOf(u)) if(r.type==='compgrant'&&fyOf(r.start)===fy&&ev({...r,uid:u}).status==='approved') grants.push({id:r.id,date:r.start,label:r.reason||'',hours:r.hours,used:0});
+  for(const it of (S.comp[u]?.items||[])) if(fyOf(it.date)===fy) grants.push({id:'c:'+it.id,date:it.date,label:it.memo||'관리자 부여',hours:it.hours,used:0});
+  grants.sort((a,b)=>a.date.localeCompare(b.date));
+  const byId=new Map(grants.map(g=>[g.id,g])), uses=new Map();
+  const list=reqsOf(u).filter(r=>r.type==='comp'&&fyOf(r.start)===fy&&['approved','pending'].includes(ev({...r,uid:u}).status)).sort((a,b)=>a.start.localeCompare(b.start));
+  const take=(r,g,hh)=>{if(hh<=0)return 0;const t=Math.min(hh,g.hours-g.used);if(t<=0)return 0;g.used+=t;(uses.get(r.id)||uses.set(r.id,[]).get(r.id)).push({g,hours:t,auto:g.id!==r.from});return t;};
+  const rest=new Map();
+  for(const r of list){let left=r.hours;const g=r.from&&byId.get(r.from);if(g)left-=take(r,g,left);rest.set(r.id,left);}
+  for(const r of list){let left=rest.get(r.id);for(const g of grants){if(left<=0)break;left-=take(r,g,left);}}
+  return {grants,uses};
+}
+const gLabel=g=>`${fmtD(g.date)} 근무분`;
+function fillFrom(){
+  const on=$('fType').value==='comp'; $('wFrom').classList.toggle('hidden',!on); if(!on||!S.me) return;
+  const sel=$('fFrom'), cur=sel.value, fy=fyOf($('fStart').value||TODAY);
+  const {grants}=compAlloc(S.me,fy);
+  sel.replaceChildren(h('option',{value:''},'자동 (오래된 근무분부터)'),...grants.filter(g=>g.hours-g.used>0).map(g=>h('option',{value:g.id,selected:g.id===cur},`${gLabel(g)}${g.label?' · '+g.label:''} · 남은 ${fmtH(g.hours-g.used)}`)));
+}
 function typeCell(r){
   const out=[h('div',{},TYPES[r.type]?.label)];
+  if((r.type==='comp'||r.type==='compgrant')&&r.uid){
+    const a=compAlloc(r.uid,fyOf(r.start));
+    if(r.type==='comp'){const us=a.uses.get(r.id);if(us&&us.length)out.push(h('div',{class:'small',style:'color:var(--accent)'},'← '+us.map(x=>gLabel(x.g)+(us.length>1?` ${fmtH(x.hours)}`:'')).join(', ')));}
+    else{const g=a.grants.find(x=>x.id===r.id);if(g)out.push(h('div',{class:'muted small'},`사용 ${fmtH(g.used)} · 남음 ${fmtH(g.hours-g.used)}`));}
+  }
   if(r.detail&&(r.detail.kind||r.detail.text)) out.push(h('div',{class:'small'},[r.detail.kind,r.detail.text].filter(Boolean).join(' · ')));
   else if(r.reason) out.push(h('div',{class:'muted small'},r.reason));
   if(r.files&&r.files.length) out.push(h('div',{class:'files'},r.files.map(f=>h('button',{type:'button',class:'file',title:f.name+' 열기',onclick:()=>openFile(f)},(f.type==='application/pdf'?'📄 ':'🖼 ')+f.name))));
@@ -1385,6 +1413,7 @@ function formState(){
   return {type,unit,start,end,hours,info,time:unit==='hour'?$('fTime').value:null,reason:$('fReason').value.trim()};
 }
 function updateSummary(){
+  fillFrom();
   const f=formState(), box=$('summary'); box.replaceChildren();
   $('wEnd').classList.toggle('hidden',f.unit!=='day');
   $('wTime').classList.toggle('hidden',f.unit!=='hour');
@@ -1416,6 +1445,7 @@ function validate(f){
   if(f.type==='official'){
     if(!$('oText').value.trim()) return '공가 사유·내용을 적어 주세요.';
   }
+  if(f.type==='comp'&&$('fFrom').value){const g=compAlloc(S.me,fyOf(f.start)).grants.find(x=>x.id===$('fFrom').value);if(!g)return '선택한 휴일근무분을 찾을 수 없어요.';if(f.hours>g.hours-g.used)return `선택한 근무분(${gLabel(g)})의 남은 시간(${fmtH(g.hours-g.used)})보다 많아요. 자동으로 두거나 나눠서 신청해 주세요.`;}
   if(kind){const b=pool(S.me,fyOf(f.start),kind);const avail=b.remain-b.pend;
     if(f.hours>avail) return `${TYPES[f.type].label} 잔여(${fmtH(avail)}, 결재 중 제외)보다 많아요.`;}
   return null;
@@ -1427,6 +1457,7 @@ async function submitReq(ev0){
   const steps=chainFor(S.me);
   const r={id:Date.now().toString(36)+Math.random().toString(36).slice(2,8),type:f.type,unit:f.unit,start:f.start,end:f.end,hours:f.hours,reason:f.reason,steps,createdAt:Date.now()};
   if(f.time) r.time=f.time;
+  if(f.type==='comp'&&$('fFrom').value) r.from=$('fFrom').value;
   $('submitBtn').disabled=true;
   try{
     if(f.type==='official'){
@@ -1633,7 +1664,13 @@ function renderMine(){
   const o=otherUse(S.me,fy); const txt=['official','special','sick','trip'].filter(k=>o[k]).map(k=>`${TYPES[k].label} ${fmtH(o[k])}`).join(' · ');
   side.append(h('div',{class:'mini'},h('span',{},'그 밖의 사용 (승인)'),h('b',{style:'font-size:15px;margin-top:4px'},txt||'없음')));
   // my list
-  const rows=reqsOf(S.me).filter(r=>fyOf(r.start)===fy).sort((a,b)=>b.start.localeCompare(a.start));
+  const GROUPS={all:['전체',()=>true],annual:['연차',r=>r.type==='annual'],comp:['대체휴가',r=>r.type==='comp'||r.type==='compgrant'],other:['공가·병가 등',r=>['official','special','sick','trip'].includes(r.type)]};
+  const allRows=reqsOf(S.me).filter(r=>fyOf(r.start)===fy);
+  S.myF=S.myF||'all';
+  $('myFilter').replaceChildren(...Object.entries(GROUPS).map(([k,[label,fn]])=>h('button',{type:'button','aria-pressed':String(S.myF===k),onclick:()=>{S.myF=k;render();}},`${label} ${allRows.filter(fn).length}`)));
+  const rows=allRows.filter(GROUPS[S.myF][1]).sort((a,b)=>b.start.localeCompare(a.start));
+  const okH=t=>rows.filter(r=>r.type===t&&ev({...r,uid:S.me}).status==='approved').reduce((a,r)=>a+r.hours,0);
+  $('mySum').textContent=S.myF==='annual'?`승인된 연차 사용 ${fmtH(okH('annual'))}`:S.myF==='comp'?`대체휴가 부여 ${fmtH(okH('compgrant'))} · 사용 ${fmtH(okH('comp'))}`:S.myF==='other'?`승인 ${fmtH(rows.filter(r=>ev({...r,uid:S.me}).status==='approved').reduce((a,r)=>a+r.hours,0))}`:'';
   const tb=$('myRows'); tb.replaceChildren(); $('myEmpty').classList.toggle('hidden',rows.length>0);
   for(const r0 of rows){
     const r={...r0,uid:S.me}, st=ev(r).status;
