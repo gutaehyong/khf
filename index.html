@@ -515,6 +515,8 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
       <section class="panel">
         <h2>데이터 옮기기 · 백업</h2>
         <p class="muted small" style="margin:-6px 0 12px">다른 프로그램(예: Microsoft 365 버전)으로 옮기거나 백업할 때 써요. 내보내기 파일에는 명단·직위·팀·입사일·연차 이관분과 <b>승인된</b> 휴가 기록이 들어가요. 결재 중인 신청과 첨부파일은 옮겨지지 않아요.</p>
+        <div class="row" style="margin-bottom:10px"><b class="small">자동 백업</b><span class="muted small" id="bkInfo">확인 중…</span><button class="btn ghost sm" id="bkNow" type="button">지금 백업</button></div>
+        <div class="files" id="bkList" style="margin-bottom:12px"></div>
         <div class="row"><button class="btn ghost sm" id="expBtn" type="button">이관용 내보내기</button>
           <label class="btn ghost sm" style="cursor:pointer">이관 파일 가져오기<input type="file" id="impFile" accept=".json,application/json" class="hidden"></label>
           <span class="msg" id="impMsg" style="grid-column:auto"></span></div>
@@ -709,6 +711,11 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     const c=C(k); if(c.loading) return c.loading;
     c.loading=(async()=>{
       if(!LIDS[k]){c.items=[];c.at=Date.now();return [];}   // 권한이 없어 보이지 않는 목록(예: 인사 정보)은 빈 목록으로
+      if(k==='hr'){  // 인사 목록에는 백업도 들어 있어서, 'main'만 내용까지 읽어요
+        const lite=await hrLite(), full=[];
+        for(const it of lite) if(/^main(#\d+)?$/.test(it.fields?.Title||'')) full.push(await gx('GET',`/sites/${SITE}/lists/${LIDS.hr}/items/${it.id}?$expand=fields($select=Title,Data)`));
+        c.items=full; c.at=Date.now(); return full;
+      }
       const out=[]; let url=`/sites/${SITE}/lists/${LIDS[k]}/items?$expand=fields($select=Title,Data,Pro,Comp)&$top=999`;
       while(url){const j=await gx('GET',url);out.push(...j.value);url=j['@odata.nextLink']||null;}
       c.items=out; c.at=Date.now();
@@ -851,6 +858,22 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       return {id:item.id,url:'',contentType:opts.type||file.type||item.file?.mimeType||'',sizeBytes:item.size};
     },
     async delete(id){try{await gx('DELETE',`/sites/${SITE}/drive/items/${id}`);}catch(e){if(e.status!==404)throw e;}}
+  };
+  async function hrLite(){const out=[];let url=`/sites/${SITE}/lists/${LIDS.hr}/items?$expand=fields($select=Title)&$select=id,createdDateTime,createdBy&$top=999`;while(url){const j=await gx('GET',url);out.push(...j.value);url=j['@odata.nextLink']||null;}return out;}
+  window.__backup={
+    async list(){if(!LIDS.hr)return [];const ts=(await hrLite()).map(it=>it.fields?.Title||'').filter(t=>/^backup-\d{4}-\d{2}-\d{2}$/.test(t));return [...new Set(ts)].sort().reverse();},
+    async remove(id){for(const it of await hrLite()){const t=it.fields?.Title||'';if(t===id||t.startsWith(id+'#'))await gx('DELETE',`/sites/${SITE}/lists/${LIDS.hr}/items/${it.id}`);}},
+    async save(obj){
+      const id='backup-'+new Date().toISOString().slice(0,10); await this.remove(id);
+      const json=JSON.stringify(obj), parts=[]; for(let i=0;i<json.length;i+=CHUNK)parts.push(json.slice(i,i+CHUNK));
+      for(let i=0;i<parts.length;i++) await gx('POST',`/sites/${SITE}/lists/${LIDS.hr}/items`,{fields:{Title:i?`${id}#${i}`:id,Data:i?parts[i]:`\u0001${parts.length}\u0001${parts[0]}`}});
+      return id;
+    },
+    async get(id){
+      const its=(await hrLite()).filter(it=>{const t=it.fields?.Title||'';return t===id||t.startsWith(id+'#');}), full=[];
+      for(const it of its) full.push(await gx('GET',`/sites/${SITE}/lists/${LIDS.hr}/items/${it.id}?$expand=fields($select=Title,Data)`));
+      const base=full.find(it=>it.fields.Title===id); return base?parseData(base.fields.Data,full,id):null;
+    }
   };
   window.__fileUrl=async id=>{const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,name,webUrl`);return it.webUrl;};
   window.__blob=async id=>{const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,@microsoft.graph.downloadUrl`);const r=await fetch(it['@microsoft.graph.downloadUrl']);if(!r.ok)throw new Error('download');return r.blob();};
@@ -1990,7 +2013,7 @@ function renderPositions(){
       h('td',{class:'num'},n?h('span',{class:'muted small'},'사용 중이라 삭제 불가'):armBtn('pd'+i,'삭제','정말 삭제?',()=>savePos(l=>{l.splice(i,1);})))));
   });
 }
-function exportAll(){
+function buildExport(){
   const cfg=clone(S.rawConfig); cfg.roster=cfg.roster||{}; const pend=[];
   const uidOf={}; for(const [k,x] of Object.entries(cfg.roster)) if(x.uid) uidOf[x.uid]=k;
   for(const [k,x] of Object.entries(cfg.roster)){
@@ -2009,7 +2032,11 @@ function exportAll(){
   }
   for(const l of (cfg.lines||[])){l.people=(l.people||[]).map(p=>uidOf[p]||p).filter(p=>String(p).startsWith('n:'));for(const st of (l.steps||[]))if(st&&st.p&&uidOf[st.p])st.p=uidOf[st.p];}
   cfg.people={};
-  const out={format:'khf-leave-export',version:1,exportedAt:new Date().toISOString(),config:cfg,pending:pend};
+  return {format:'khf-leave-export',version:1,exportedAt:new Date().toISOString(),config:cfg,pending:pend,
+    raw:{config:S.pubConfig,hr:S.hr,leaves:S.priv,cal:S.cal,decisions:S.decisions,approvals:S.approvals,comp:S.comp,pro:S.pro}};
+}
+function exportAll(){
+  const out=buildExport(), pend=out.pending;
   const name=`휴가관리_이관_${TODAY}.json`, blob=new Blob([JSON.stringify(out)],{type:'application/json'});
   claude.use('downloads').then(dl=>{if(!dl){notice('이 화면에서는 파일 내려받기를 쓸 수 없어요.');return;}return dl.save({filename:name,data:blob});})
     .then(()=>{const m=$('impMsg');m.className='msg good';m.textContent=`내보냈어요. 결재 중인 신청 ${pend.length}건은 옮겨지지 않아요${pend.length?': '+pend.join(', '):''}.`;})
@@ -2026,6 +2053,37 @@ async function importAll(file){
   }catch(e){console.error(e);m.className='msg err';m.textContent='가져오지 못했어요. 이관용으로 내보낸 파일(.json)이 맞는지 확인해 주세요.';}
 }
 $('expBtn').addEventListener('click',exportAll);
+/* ---------- 자동 백업 (관리자가 열 때 7일마다, 관리자만 읽을 수 있는 Leave_HR 목록에 12개까지 보관) ---------- */
+const BK_KEEP=12, BK_DAYS=7; let bkDone=false;
+async function refreshBackupInfo(){
+  if(!window.__backup||!S.isAdmin) return [];
+  try{
+    const list=await window.__backup.list(); const last=list[0]?.slice(7);
+    $('bkInfo').textContent=last?`최근 ${last} · ${list.length}개 보관 (7일마다 자동, 최근 ${BK_KEEP}개)`:'아직 백업이 없어요';
+    $('bkList').replaceChildren(...list.map(id=>h('button',{type:'button',class:'file',title:'백업 파일 내려받기',onclick:()=>downloadBackup(id)},'💾 '+id.slice(7))));
+    return list;
+  }catch(e){console.warn(e);$('bkInfo').textContent='백업 목록을 읽지 못했어요';return [];}
+}
+async function runBackup(manual){
+  if(!window.__backup||!S.isAdmin) return;
+  if(!S.hrOK){if(manual)notice('인사 정보(Leave_HR)를 읽을 수 없어 백업할 수 없어요. SharePoint 사이트 소유자인지 확인해 주세요.');return;}
+  try{
+    const id=await window.__backup.save(buildExport());
+    const list=await window.__backup.list(); for(const old of list.slice(BK_KEEP)) await window.__backup.remove(old);
+    await refreshBackupInfo(); notice(`${manual?'':'자동 '}백업을 저장했어요 (${id.slice(7)}).`); setTimeout(()=>notice(''),5000);
+  }catch(e){console.warn(e);if(manual)notice('백업을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.');}
+}
+async function autoBackup(){
+  if(bkDone||!window.__backup||!S.isAdmin||!S.hrOK) return; bkDone=true;
+  const list=await refreshBackupInfo(); const last=list[0]?.slice(7);
+  if(!last||dayDiff(last,TODAY)>=BK_DAYS) runBackup(false);
+}
+async function downloadBackup(id){
+  try{const d=await window.__backup.get(id);if(!d)throw new Error('empty');const dl=await claude.use('downloads');await dl.save({filename:`휴가관리_${id}.json`,data:new Blob([JSON.stringify(d)],{type:'application/json'})});}
+  catch(e){console.warn(e);notice('백업 파일을 내려받지 못했어요.');}
+}
+$('bkNow').addEventListener('click',()=>runBackup(true));
+setInterval(()=>{if(S.isAdmin&&S.hrOK&&!bkDone)autoBackup();},10000);
 $('impFile').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f)importAll(f);});
 $('addPos').addEventListener('click',()=>savePos(l=>{let k=1,nm='새 직위';while(l.some(p=>p.name===nm))nm='새 직위 '+(++k);l.push({name:nm,level:0});}));
 function renderLines(){
@@ -2141,6 +2199,7 @@ function renderAdmin(){
     if(!rows.length) tb.append(h('tr',{},h('td',{colspan:'5',class:'muted'},'아직 부여한 대체휴가가 없어요.')));
   }
   if(S.sub==='settings'){
+    if(!S.bkShown){S.bkShown=true;refreshBackupInfo();}
     renderPositions();
     const c=C();
     if(document.activeElement!==$('sFsm')) $('sFsm').value=c.fsm;
