@@ -354,7 +354,9 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
     </section>
     <section class="panel">
       <div class="row between" style="margin-bottom:12px"><h2 style="margin:0">내가 처리한 결재</h2>
-        <label class="row small muted" style="gap:6px">신청자 <select id="doneWho" style="width:auto"></select></label></div>
+        <div class="row" style="gap:12px"><label class="row small muted" style="gap:6px">신청자 <select id="doneWho" style="width:auto"></select></label>
+        <label class="row small muted" style="gap:6px">종류 <select id="doneType" style="width:auto"></select></label>
+        <label class="row small muted" style="gap:6px">정렬 <select id="doneSort" style="width:auto"><option value="date">최근 순</option><option value="type">종류 순</option></select></label></div></div>
       <div class="muted small" id="doneSum" style="margin:-4px 0 8px"></div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>신청자</th><th>기간</th><th>종류</th><th>내 결정</th><th>현재 상태</th></tr></thead>
@@ -1739,9 +1741,19 @@ function renderInbox(){
     sel.replaceChildren(h('option',{value:''},`전체 (${doneAll.length})`),...Object.keys(cnt).sort((a,b)=>nameOf(a).localeCompare(nameOf(b),'ko')).map(u=>h('option',{value:u,selected:u===S.doneWho},`${nameOf(u)} (${cnt[u]})`)));
     sel.onchange=e=>{S.doneWho=e.target.value;render();};
   }
-  const done=S.doneWho?doneAll.filter(([id])=>all.get(id).uid===S.doneWho):doneAll.slice(0,40);
+  const TG={annual:'연차',comp:'대체휴가 (사용·부여)',official:'공가',special:'특별휴가',sick:'병가',trip:'출장'};
+  const tgOf=r=>r.type==='compgrant'?'comp':r.type;
+  const byWho=S.doneWho?doneAll.filter(([id])=>all.get(id).uid===S.doneWho):doneAll;
+  const tcnt={}; for(const [id] of byWho){const g=tgOf(all.get(id));tcnt[g]=(tcnt[g]||0)+1;}
+  if(S.doneType&&!tcnt[S.doneType]) S.doneType='';
+  const ts=$('doneType'); if(document.activeElement!==ts){ts.replaceChildren(h('option',{value:''},`전체 (${byWho.length})`),...Object.keys(TG).filter(k=>tcnt[k]).map(k=>h('option',{value:k,selected:k===S.doneType},`${TG[k]} (${tcnt[k]})`)));ts.onchange=e=>{S.doneType=e.target.value;render();};}
+  const so=$('doneSort'); so.value=S.doneSort||'date'; so.onchange=e=>{S.doneSort=e.target.value;render();};
+  let done=S.doneType?byWho.filter(([id])=>tgOf(all.get(id))===S.doneType):byWho;
+  if(S.doneSort==='type'){const ord=Object.keys(TG);done=[...done].sort((a,b)=>{const ra=all.get(a[0]),rb=all.get(b[0]);return ord.indexOf(tgOf(ra))-ord.indexOf(tgOf(rb))||(ra.type==='compgrant')-(rb.type==='compgrant')||b[1].at-a[1].at;});}
+  if(!S.doneWho&&!S.doneType) done=done.slice(0,40);
   const ok=done.filter(([,x])=>x.v==='approved'),no=done.length-ok.length;
-  $('doneSum').textContent=S.doneWho?`${nameOf(S.doneWho)}님 신청 ${done.length}건 처리 · 승인 ${ok.length}건 (${fmtH(ok.reduce((a,[id])=>a+(TYPES[all.get(id).type]?.grant?0:all.get(id).hours),0))})${no?` · 반려 ${no}건`:''}`:(doneAll.length>40?'최근 40건만 보여요. 신청자를 고르면 그 사람 건을 모두 볼 수 있어요.':'');
+  const brk=Object.keys(TG).map(k=>{const rs=ok.filter(([id])=>tgOf(all.get(id))===k&&!TYPES[all.get(id).type]?.grant);const hh=rs.reduce((a,[id])=>a+all.get(id).hours,0);return hh?`${TG[k].replace(' (사용·부여)','')} ${fmtH(hh)}`:'';}).filter(Boolean).join(' · ');
+  $('doneSum').textContent=(S.doneWho||S.doneType)?`${S.doneWho?nameOf(S.doneWho)+'님 ':''}${S.doneType?TG[S.doneType]+' ':''}${done.length}건 처리 · 승인 ${ok.length}건${brk?` (${brk})`:''}${no?` · 반려 ${no}건`:''}`:(doneAll.length>40?'최근 40건만 보여요. 신청자나 종류를 고르면 모두 볼 수 있어요.':'');
   const dt=$('doneRows'); dt.replaceChildren(); $('doneEmpty').classList.toggle('hidden',done.length>0);
   for(const [id,x] of done){const r=all.get(id);dt.append(h('tr',{},h('td',{},personEl(r.uid)),h('td',{},whenEl(r)),h('td',{},typeCell(r)),h('td',{},badge(x.v),h('span',{class:'muted small'},' '+(x.step==='legacy'?'기존 대장':String(x.step).startsWith('p:')?'지정 결재':stepLabel(x.step)))),h('td',{},badge(ev(r).status))));}
 }
