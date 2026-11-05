@@ -204,6 +204,12 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
 .wait{font-size:12px;color:var(--muted);margin-top:3px}
 .wait.late{color:var(--bad);font-weight:600}
 .banner.late{background:var(--bad-soft);border-color:var(--bad)}
+.ordc{white-space:nowrap;width:56px}
+.grip{cursor:grab;font-size:17px;color:var(--muted);padding:0 6px 0 0;user-select:none;vertical-align:middle}
+.grip:active{cursor:grabbing}
+#peopleRows tr.dragging{opacity:.45}
+#peopleRows tr.drop-before td{box-shadow:inset 0 3px 0 var(--accent)}
+#peopleRows tr.drop-after td{box-shadow:inset 0 -3px 0 var(--accent)}
 .linecard{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px}
 .linecard h3{margin:14px 0 6px;font-size:13px;color:var(--muted);font-weight:500}
 .steps{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -413,9 +419,9 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
       <section class="panel">
         <h2>직원 정보</h2>
         <p class="muted small" style="margin:-6px 0 12px">명단의 직원이 처음 로그인하면 명단의 메일 주소나 이름으로 자동 연결돼요. 이름이 다르거나 동명이인이면 ‘명단에서 고르기’로 직접 연결해 주세요. 연결되기 전까지는 결재와 연차 계산에 들어가지 않아요. 연결된 직원은 여기서 바로 고칠 수도 있어요.</p>
-        <div class="row" style="margin:-4px 0 12px"><span class="muted small">순서 칸에 번호를 넣거나 ▲▼를 누르면, 연차 현황·월별 보고·팀 캘린더도 같은 순서로 나와요.</span><button class="btn ghost sm" id="ordReset" type="button">기본 순서(팀·직위)로 되돌리기</button></div>
+        <div class="row" style="margin:-4px 0 12px"><span class="muted small">왼쪽 ⠿ 손잡이를 마우스로 끌어 원하는 자리에 놓으면, 연차 현황·월별 보고·팀 캘린더도 같은 순서로 나와요.</span><button class="btn ghost sm" id="ordReset" type="button">기본 순서(팀·직위)로 되돌리기</button></div>
         <div class="tbl-wrap"><table>
-          <thead><tr><th>순서</th><th>직원</th><th>직위</th><th>국</th><th>팀</th><th>입사일</th><th>퇴사일</th><th>메일</th><th>명단</th><th>관리자</th></tr></thead>
+          <thead><tr><th style="width:56px">순서</th><th>직원</th><th>직위</th><th>국</th><th>팀</th><th>입사일</th><th>퇴사일</th><th>메일</th><th>명단</th><th>관리자</th></tr></thead>
           <tbody id="peopleRows"></tbody>
         </table></div>
       </section>
@@ -2227,11 +2233,17 @@ function renderAdmin(){
       rowsOut.push([k,h('tr',{},h('td',{},nm,h('div',{class:'muted small'},'아직 접속 전')),h('td',{},pos),h('td',{},txt('bureau','예: 사무국')),h('td',{},txt('team','예: 기획관리팀')),h('td',{},date('hire')),h('td',{},date('end')),h('td',{},mailInput(k)),
         h('td',{},armBtn('rm'+k,'명단에서 빼기','정말 뺄까요?',()=>writeConfig(c=>{if(c.roster)delete c.roster[k];}).catch(writeErr))),h('td',{},adminBox(k)))]);
     }
-    rowsOut.sort((a,b)=>cmpPeople(a[0],b[0])).forEach(([id,tr],i)=>{
-      const n=h('input',{type:'number',min:'1',max:String(rowsOut.length),value:i+1,style:'width:52px;text-align:right','aria-label':'순서',onchange:e=>movePerson(id,Number(e.target.value)||i+1)});
-      tr.prepend(h('td',{class:'when'},h('div',{class:'row',style:'gap:2px;flex-wrap:nowrap'},n,
-        h('button',{class:'btn ghost sm',type:'button',title:'위로',style:'padding:2px 6px',disabled:i===0,onclick:()=>movePerson(id,i)},'▲'),
-        h('button',{class:'btn ghost sm',type:'button',title:'아래로',style:'padding:2px 6px',disabled:i===rowsOut.length-1,onclick:()=>movePerson(id,i+2)},'▼'))));
+    const sorted=rowsOut.sort((a,b)=>cmpPeople(a[0],b[0])), ids=sorted.map(r=>r[0]);
+    sorted.forEach(([id,tr],i)=>{
+      tr.dataset.id=id;
+      const grip=h('span',{class:'grip',title:'끌어서 순서 바꾸기'},'⠿');
+      grip.addEventListener('mousedown',()=>{tr.draggable=true;});
+      tr.addEventListener('dragstart',e=>{S.dragId=id;tr.classList.add('dragging');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',id);}catch{}});
+      tr.addEventListener('dragend',()=>{tr.draggable=false;tr.classList.remove('dragging');tb.querySelectorAll('.drop-before,.drop-after').forEach(x=>x.classList.remove('drop-before','drop-after'));});
+      tr.addEventListener('dragover',e=>{if(!S.dragId)return;e.preventDefault();const r=tr.getBoundingClientRect(),after=e.clientY>r.top+r.height/2;tb.querySelectorAll('.drop-before,.drop-after').forEach(x=>x.classList.remove('drop-before','drop-after'));tr.classList.add(after?'drop-after':'drop-before');});
+      tr.addEventListener('drop',e=>{e.preventDefault();const src=S.dragId;S.dragId=null;if(!src||src===id)return;const r=tr.getBoundingClientRect(),after=e.clientY>r.top+r.height/2;
+        const s=ids.indexOf(src),t=i+(after?1:0);movePerson(src,(s<t?t-1:t)+1);});
+      tr.prepend(h('td',{class:'ordc'},grip,h('span',{class:'muted small'},i+1)));
       tb.append(tr);
     });
     const vals=f=>[...new Set([...Object.values(C().roster||{}).map(x=>x[f]),...Object.values(C().people).map(x=>x[f])].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
