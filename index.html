@@ -413,8 +413,9 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
       <section class="panel">
         <h2>직원 정보</h2>
         <p class="muted small" style="margin:-6px 0 12px">명단의 직원이 처음 로그인하면 명단의 메일 주소나 이름으로 자동 연결돼요. 이름이 다르거나 동명이인이면 ‘명단에서 고르기’로 직접 연결해 주세요. 연결되기 전까지는 결재와 연차 계산에 들어가지 않아요. 연결된 직원은 여기서 바로 고칠 수도 있어요.</p>
+        <div class="row" style="margin:-4px 0 12px"><span class="muted small">순서 칸에 번호를 넣거나 ▲▼를 누르면, 연차 현황·월별 보고·팀 캘린더도 같은 순서로 나와요.</span><button class="btn ghost sm" id="ordReset" type="button">기본 순서(팀·직위)로 되돌리기</button></div>
         <div class="tbl-wrap"><table>
-          <thead><tr><th>직원</th><th>직위</th><th>국</th><th>팀</th><th>입사일</th><th>퇴사일</th><th>메일</th><th>명단</th><th>관리자</th></tr></thead>
+          <thead><tr><th>순서</th><th>직원</th><th>직위</th><th>국</th><th>팀</th><th>입사일</th><th>퇴사일</th><th>메일</th><th>명단</th><th>관리자</th></tr></thead>
           <tbody id="peopleRows"></tbody>
         </table></div>
       </section>
@@ -1786,7 +1787,7 @@ function renderCal(){
   const byU={}; for(const r of allRequests()){if(ev(r).status==='rejected'||r.start>me||(r.end||r.start)<ms)continue;(byU[r.uid]=byU[r.uid]||[]).push(r);}
   const rows=staffRows().filter(x=>!(x.end&&x.end<ms)&&!(x.hire&&x.hire>me));
   const groups=new Map(); for(const x of rows){const t=x.team||'소속 미정';if(!groups.has(t))groups.set(t,[]);groups.get(t).push(x);}
-  for(const t of groups.keys()) groups.get(t).sort((a,b)=>rank(b.pos)-rank(a.pos)||(a.hire||'9').localeCompare(b.hire||'9')||a.name.localeCompare(b.name,'ko'));
+  for(const t of groups.keys()) groups.get(t).sort((a,b)=>cmpPeople(a.u,b.u));
   const top=t=>Math.max(...groups.get(t).map(x=>rank(x.pos)));
   const order=[...groups.keys()].sort((a,b)=>(a==='소속 미정')-(b==='소속 미정')||top(b)-top(a)||a.localeCompare(b,'ko'));
   const on=(x,s)=>x.u?(byU[x.u]||[]).map(r=>({r,h:hoursOn(r,s)})).filter(o=>o.h>0):[];
@@ -1863,10 +1864,29 @@ $('grantForm').addEventListener('submit',async e=>{
 /* ---------- 월별·연간 보고서 ---------- */
 const dayN=h=>+(h/HPD()).toFixed(4);
 const blankZero=v=>v?String(v):'';
+/* 직원 순서: 관리자가 정한 순서(config.order) → 없으면 팀·직위·입사일 순 */
+function orderKeyOf(u){const R=C().roster||{};if(R[u])return u;for(const [k,x] of Object.entries(R))if(x.uid===u)return k;return u;}
+function teamTopMap(){const m={};for(const u of knownPeople()){const t=P(u).team||'';m[t]=Math.max(m[t]??0,rank(posAt(u,TODAY)));}return m;}
+function baseCmp(a,b,tt){
+  tt=tt||teamTopMap(); const ta=P(a).team||'', tb=P(b).team||'';
+  if(ta!==tb) return (ta==='')-(tb==='')||(tt[tb]??0)-(tt[ta]??0)||ta.localeCompare(tb,'ko');
+  return rank(posAt(b,TODAY))-rank(posAt(a,TODAY))||(P(a).hire||'9').localeCompare(P(b).hire||'9')||nameOf(a).localeCompare(nameOf(b),'ko');
+}
+function cmpPeople(a,b){const o=C().order||[];if(o.length){const ia=o.indexOf(orderKeyOf(a)),ib=o.indexOf(orderKeyOf(b));const d=(ia<0?1e6:ia)-(ib<0?1e6:ib);if(d)return d;}return baseCmp(a,b);}
+function allPeopleIds(){const R=C().roster||{};const ids=knownPeople().filter(u=>!u.startsWith('n:'));for(const [k,x] of Object.entries(R))if(!x.uid)ids.push(k);return [...new Set(ids)];}
+function movePerson(u,pos){
+  const ids=allPeopleIds().sort(cmpPeople).map(orderKeyOf), k=orderKeyOf(u), i=ids.indexOf(k); if(i<0) return;
+  ids.splice(i,1); ids.splice(Math.max(0,Math.min(ids.length,pos-1)),0,k);
+  writeConfig(c=>{c.order=ids;}).catch(writeErr);
+}
 function orderedStaff(fy){
+  if((C().order||[]).length){
+    const rows=staffRows().filter(x=>!(x.end&&x.end<fyStart(fy))&&!(x.hire&&x.hire>fyEnd(fy))).sort((a,b)=>cmpPeople(a.u,b.u));
+    return rows.map((x,i)=>({...x,grpStart:i===0||(rows[i-1].team||'')!==(x.team||'')}));
+  }
   const rows=staffRows().filter(x=>!(x.end&&x.end<fyStart(fy))&&!(x.hire&&x.hire>fyEnd(fy)));
   const groups=new Map(); for(const x of rows){const t=x.team||'소속 미정';if(!groups.has(t))groups.set(t,[]);groups.get(t).push(x);}
-  for(const t of groups.keys()) groups.get(t).sort((a,b)=>rank(b.pos)-rank(a.pos)||(a.hire||'9').localeCompare(b.hire||'9')||a.name.localeCompare(b.name,'ko'));
+  for(const t of groups.keys()) groups.get(t).sort((a,b)=>cmpPeople(a.u,b.u));
   const top=t=>Math.max(...groups.get(t).map(x=>rank(x.pos)));
   const order=[...groups.keys()].sort((a,b)=>(a==='소속 미정')-(b==='소속 미정')||top(b)-top(a)||a.localeCompare(b,'ko'));
   return order.flatMap(t=>groups.get(t).map((x,i)=>({...x,team:t==='소속 미정'?'':t,grpStart:i===0})));
@@ -2117,6 +2137,7 @@ async function downloadBackup(id){
 $('bkNow').addEventListener('click',()=>runBackup(true));
 setInterval(()=>{if(S.isAdmin&&S.hrOK&&!bkDone)autoBackup();},10000);
 $('impFile').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f)importAll(f);});
+$('ordReset').addEventListener('click',()=>writeConfig(c=>{delete c.order;}).catch(writeErr));
 $('addPos').addEventListener('click',()=>savePos(l=>{let k=1,nm='새 직위';while(l.some(p=>p.name===nm))nm='새 직위 '+(++k);l.push({name:nm,level:0});}));
 function renderLines(){
   const L=C().lines||[], box=$('lineList'); box.replaceChildren();
@@ -2179,6 +2200,7 @@ function renderAdmin(){
     const tb=$('peopleRows'); tb.replaceChildren();
     const roster=C().roster||{}, byUid={}; for(const [k,x] of Object.entries(roster)) if(x.uid) byUid[x.uid]=k;
     const unlinked=Object.entries(roster).filter(([,x])=>!x.uid), freeUids=people.filter(u=>!byUid[u]);
+    const rowsOut=[];
     for(const u of people.filter(x=>!x.startsWith('n:'))){
       const p=P(u);
       const link=byUid[u]?h('span',{class:'badge b-approved'},'연결됨'):
@@ -2186,7 +2208,7 @@ function renderAdmin(){
       const pos=h('select',{style:'min-width:86px',onchange:e=>setPerson(u,'pos',e.target.value)},[...new Set([...posNames(),p.pos||'담당'])].map(x=>h('option',{value:x,selected:x===(p.pos||'담당')},x)));
       const txt=(f,ph)=>h('input',{type:'text',value:p[f]||'',placeholder:ph,maxlength:'20',list:f==='team'?'teamList':'bureauList',style:'width:120px',onchange:e=>setPerson(u,f,e.target.value.trim())});
       const date=f=>h('input',{type:'date',value:p[f]||'',onchange:e=>setPerson(u,f,e.target.value)});
-      tb.append(h('tr',{},h('td',{},personEl(u)),h('td',{},pos),h('td',{},txt('bureau','예: 사업국')),h('td',{},txt('team','예: 기획팀')),h('td',{},date('hire')),h('td',{},date('end')),h('td',{},mailInput(u)),h('td',{},link),h('td',{},adminBox(u))));
+      rowsOut.push([u,h('tr',{},h('td',{},personEl(u)),h('td',{},pos),h('td',{},txt('bureau','예: 사업국')),h('td',{},txt('team','예: 기획팀')),h('td',{},date('hire')),h('td',{},date('end')),h('td',{},mailInput(u)),h('td',{},link),h('td',{},adminBox(u)))]);
     }
     for(const [k,x] of unlinked){
       const set=(f,v)=>writeConfig(c=>{const r=c.roster&&c.roster[k];if(r)r[f]=v||'';}).catch(writeErr);
@@ -2194,14 +2216,21 @@ function renderAdmin(){
       const date=f=>h('input',{type:'date',value:x[f]||'',onchange:e=>set(f,e.target.value)});
       const pos=h('select',{style:'min-width:86px',onchange:e=>set('pos',e.target.value)},[...new Set([...posNames(),x.pos||'담당'])].map(n=>h('option',{value:n,selected:n===(x.pos||'담당')},n)));
       const nm=h('input',{type:'text',value:x.name||'',maxlength:'20',style:'width:110px;font-weight:600','aria-label':'이름',onchange:e=>{const v=e.target.value.trim();if(v)set('name',v);}});
-      tb.append(h('tr',{},h('td',{},nm,h('div',{class:'muted small'},'아직 접속 전')),h('td',{},pos),h('td',{},txt('bureau','예: 사무국')),h('td',{},txt('team','예: 기획관리팀')),h('td',{},date('hire')),h('td',{},date('end')),h('td',{},mailInput(k)),
-        h('td',{},armBtn('rm'+k,'명단에서 빼기','정말 뺄까요?',()=>writeConfig(c=>{if(c.roster)delete c.roster[k];}).catch(writeErr))),h('td',{},adminBox(k))));
+      rowsOut.push([k,h('tr',{},h('td',{},nm,h('div',{class:'muted small'},'아직 접속 전')),h('td',{},pos),h('td',{},txt('bureau','예: 사무국')),h('td',{},txt('team','예: 기획관리팀')),h('td',{},date('hire')),h('td',{},date('end')),h('td',{},mailInput(k)),
+        h('td',{},armBtn('rm'+k,'명단에서 빼기','정말 뺄까요?',()=>writeConfig(c=>{if(c.roster)delete c.roster[k];}).catch(writeErr))),h('td',{},adminBox(k)))]);
     }
+    rowsOut.sort((a,b)=>cmpPeople(a[0],b[0])).forEach(([id,tr],i)=>{
+      const n=h('input',{type:'number',min:'1',max:String(rowsOut.length),value:i+1,style:'width:52px;text-align:right','aria-label':'순서',onchange:e=>movePerson(id,Number(e.target.value)||i+1)});
+      tr.prepend(h('td',{class:'when'},h('div',{class:'row',style:'gap:2px;flex-wrap:nowrap'},n,
+        h('button',{class:'btn ghost sm',type:'button',title:'위로',style:'padding:2px 6px',disabled:i===0,onclick:()=>movePerson(id,i)},'▲'),
+        h('button',{class:'btn ghost sm',type:'button',title:'아래로',style:'padding:2px 6px',disabled:i===rowsOut.length-1,onclick:()=>movePerson(id,i+2)},'▼'))));
+      tb.append(tr);
+    });
     const vals=f=>[...new Set([...Object.values(C().roster||{}).map(x=>x[f]),...Object.values(C().people).map(x=>x[f])].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
     for(const [id,f] of [['teamList','team'],['bureauList','bureau']]){let dl=document.getElementById(id);if(!dl){dl=h('datalist',{id});document.body.append(dl);}dl.replaceChildren(...vals(f).map(v=>h('option',{value:v})));}
     $('balTitle').textContent=`${fyLabel(S.fy)} 연차 현황`;
     const bt=$('balRows'); bt.replaceChildren();
-    for(const u of people.filter(u=>!approverOnly(u))){
+    for(const u of people.filter(u=>!approverOnly(u)).sort(cmpPeople)){
       const p=P(u), b=pool(u,S.fy,'annual'), c=pool(u,S.fy,'comp');
       const adj=h('input',{type:'number',step:'0.125',value:toDays(p.adj?.[S.fy]||0),style:'width:80px;text-align:right','aria-label':'조정 일수',onchange:e=>{const v=Math.round((Number(e.target.value)||0)*HPD()*100)/100;writeConfig(cf=>{cf.people=cf.people||{};const q=cf.people[u]=cf.people[u]||{};q.adj=q.adj||{};if(v)q.adj[S.fy]=v;else delete q.adj[S.fy];}).catch(writeErr);}});
       bt.append(h('tr',{},h('td',{},personEl(u),!p.hire?h('div',{class:'note'},'입사일 없음'):null),h('td',{class:'num'},fmtH(b.granted-(Number(p.adj?.[S.fy])||0))),h('td',{class:'num muted'},fmtH(b.sched)),h('td',{class:'num'},adj),
@@ -2320,7 +2349,7 @@ function csvAll(){
 }
 function csvBal(){
   const rows=[['직원','직위','국','팀','입사일','발생(일)','발생 예정(일)','조정(일)','사용(일)','결재 중(일)','연차 잔여(일)','대체휴가 잔여(일)']];
-  for(const u of knownPeople().filter(u=>!approverOnly(u))){const p=P(u),b=pool(u,S.fy,'annual'),c=pool(u,S.fy,'comp');const adj=Number(p.adj?.[S.fy])||0;rows.push([nameOf(u),posAt(u,TODAY),p.bureau||'',p.team||'',p.hire||'',...[b.granted-adj,b.sched,adj,b.used,b.pend,b.remain,c.remain].map(toDays)]);}
+  for(const u of knownPeople().filter(u=>!approverOnly(u)).sort(cmpPeople)){const p=P(u),b=pool(u,S.fy,'annual'),c=pool(u,S.fy,'comp');const adj=Number(p.adj?.[S.fy])||0;rows.push([nameOf(u),posAt(u,TODAY),p.bureau||'',p.team||'',p.hire||'',...[b.granted-adj,b.sched,adj,b.used,b.pend,b.remain,c.remain].map(toDays)]);}
   saveCsv(`연차현황_${S.fy}.csv`,rows);
 }
 
