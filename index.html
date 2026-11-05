@@ -1723,7 +1723,16 @@ function renderInbox(){
     tb.append(h('tr',{},h('td',{},personEl(r.uid,true)),h('td',{},whenEl(r)),h('td',{},typeCell(r)),h('td',{class:'num'},fmtH(r.hours),warn),h('td',{},lineEl(r)),h('td',{class:'num'},act)));
   }
   const mine=S.decisions[S.me]?.d||{}, all=new Map(allRequests().map(r=>[r.id,r]));
-  const doneAll=Object.entries(mine).filter(([id])=>all.has(id)).sort((a,b)=>b[1].at-a[1].at);
+  const doneAll=Object.entries(mine).filter(([id])=>all.has(id));
+  // 프로그램 사용 전(기존 대장에서 옮겨 온) 기록: 지금 결재선상 내가 결재자인 사람의 기록을 '기존 대장 결재'로 함께 보여 줌
+  const amApprover=u=>chainFor(u).some(st=>typeof st==='string'?fits(posAt(S.me,TODAY),st)&&scopeOK(st,u,S.me):idEq(S.me,st.p));
+  const apprCache={};
+  for(const r of all.values()){
+    if(!r.imported||r.adminAdded||r.uid===S.me||TYPES[r.type]?.grant||mine[r.id]) continue;
+    if(!(r.uid in apprCache)) apprCache[r.uid]=amApprover(r.uid);
+    if(apprCache[r.uid]) doneAll.push([r.id,{v:'approved',step:'legacy',at:parse(r.start).getTime()}]);
+  }
+  doneAll.sort((a,b)=>b[1].at-a[1].at);
   const cnt={}; for(const [id] of doneAll){const u=all.get(id).uid;cnt[u]=(cnt[u]||0)+1;}
   if(S.doneWho&&!cnt[S.doneWho]) S.doneWho='';
   const sel=$('doneWho'); if(document.activeElement!==sel){
@@ -1734,7 +1743,7 @@ function renderInbox(){
   const ok=done.filter(([,x])=>x.v==='approved'),no=done.length-ok.length;
   $('doneSum').textContent=S.doneWho?`${nameOf(S.doneWho)}님 신청 ${done.length}건 처리 · 승인 ${ok.length}건 (${fmtH(ok.reduce((a,[id])=>a+(TYPES[all.get(id).type]?.grant?0:all.get(id).hours),0))})${no?` · 반려 ${no}건`:''}`:(doneAll.length>40?'최근 40건만 보여요. 신청자를 고르면 그 사람 건을 모두 볼 수 있어요.':'');
   const dt=$('doneRows'); dt.replaceChildren(); $('doneEmpty').classList.toggle('hidden',done.length>0);
-  for(const [id,x] of done){const r=all.get(id);dt.append(h('tr',{},h('td',{},personEl(r.uid)),h('td',{},whenEl(r)),h('td',{},typeCell(r)),h('td',{},badge(x.v),h('span',{class:'muted small'},' '+(String(x.step).startsWith('p:')?'지정 결재':stepLabel(x.step)))),h('td',{},badge(ev(r).status))));}
+  for(const [id,x] of done){const r=all.get(id);dt.append(h('tr',{},h('td',{},personEl(r.uid)),h('td',{},whenEl(r)),h('td',{},typeCell(r)),h('td',{},badge(x.v),h('span',{class:'muted small'},' '+(x.step==='legacy'?'기존 대장':String(x.step).startsWith('p:')?'지정 결재':stepLabel(x.step)))),h('td',{},badge(ev(r).status))));}
 }
 
 /* ---------- 화면: 팀 캘린더 ---------- */
