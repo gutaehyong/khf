@@ -590,6 +590,7 @@ window.APP_CONFIG={
   tenantId:'d95f94b4-77a6-4925-92fb-59d55d740283',
   siteHost:'kohem.sharepoint.com',
   sitePath:'/sites/khf',
+  sitesScope:'Sites.ReadWrite.All',   // 나중에 Sites.Selected 설정을 마치면 'Sites.Selected' 로 바꿔요
   redirectUri:''   // 비워 두면 현재 주소를 써요
 };
 </script>
@@ -672,8 +673,10 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
 (function(){
   const A=window.APP_CONFIG||{};
   const G='https://graph.microsoft.com/v1.0';
-  const SCOPES=['User.Read','User.ReadBasic.All','Sites.ReadWrite.All','Mail.Send'];
-  const SETUP_SCOPES=[...SCOPES,'Sites.Manage.All'];
+  // 사이트 권한: 기본은 khf 사이트 하나만 허용하는 Sites.Selected. 문제가 생기면 APP_CONFIG.sitesScope 를 'Sites.ReadWrite.All' 로 바꾸면 예전처럼 동작해요.
+  const SITES_SCOPE=A.sitesScope||'Sites.Selected';
+  const SCOPES=['User.Read','User.ReadBasic.All',SITES_SCOPE,'Mail.Send','Files.ReadWrite.AppFolder'];
+  const SETUP_SCOPES=SCOPES;   // 목록을 새로 만들 때는 Graph에서 이 앱의 사이트 권한을 잠깐 manage로 올려 주세요
   const LISTS={leaves:'Leave_Requests',cal:'Leave_Calendar',decisions:'Leave_Decisions',approvals:'Leave_Overrides',config:'Leave_Config',hr:'Leave_HR'};
   const SELF_LISTS=['leaves','cal','decisions'];          // 문서 id = 작성자 메일
   const POLL=30000, CHUNK=60000;
@@ -718,6 +721,129 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
   const cache={};   // listKey -> {items, at, subs:Set, loading}
   const C=k=>cache[k]||(cache[k]={items:[],at:0,subs:new Set(),loading:null});
   const emailOf=it=>String(it.createdBy?.user?.email||'').toLowerCase();
+
+  /* ---------- 보안: 기록 위조 검사 ----------
+     SharePoint가 자동으로 남기는 '만든 사람'과 '마지막으로 고친 사람'을 함께 본다.
+     본인 기록은 본인이나 관리자가 마지막으로 고친 것만 인정한다. */
+  const modOf=it=>String(it.lastModifiedBy?.user?.email||'').toLowerCase();
+  const isAdm=e=>!!e&&ADMINS.includes(e);
+  const okOwn=(it,id)=>emailOf(it)===id&&(modOf(it)===id||isAdm(modOf(it)));
+  const okAdm=it=>isAdm(emailOf(it))&&isAdm(modOf(it));
+  const samePart=(it,base)=>!base||(emailOf(it)===emailOf(base)&&(modOf(it)===emailOf(base)||isAdm(modOf(it))));
+
+  /* ---------- 보안: 개인 키 ----------
+     직원마다 키 한 쌍(잠금용 RSA, 서명용 ECDSA)을 만든다.
+     개인 키는 본인 OneDrive의 앱 전용 폴더에만, 공개 키는 LeaveFiles/_pub/<메일>.json 에 둔다. */
+  const RSA={name:'RSA-OAEP',hash:'SHA-256'}, ECD={name:'ECDSA',namedCurve:'P-256'}, ECS={name:'ECDSA',hash:'SHA-256'};
+  const b64=buf=>{let s='';const a=new Uint8Array(buf);for(let i=0;i<a.length;i+=8192)s+=String.fromCharCode.apply(null,a.subarray(i,i+8192));return btoa(s);};
+  const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+  const fp=j=>String(j&&j.n||j&&j.x||'').slice(0,16);
+  const KEYF='leave-keys.json', MAGIC=new TextEncoder().encode('KHFENC1\n');
+  const K={enc:null,sig:null,encPub:null,sigPub:null,pub:{},ver:new Map()};
+  async function readDrive(path){   // path: Graph 경로(…:/content 없이). 없으면 null
+    let it;try{it=await gx('GET',`${path}?$select=id,createdBy,lastModifiedBy,@microsoft.graph.downloadUrl`);}catch(e){if(e.status===404)return null;throw e;}
+    const r=await fetch(it['@microsoft.graph.downloadUrl']);if(!r.ok)throw new Error('download');return {it,buf:await r.arrayBuffer()};
+  }
+  const putDrive=(path,data,type='application/json')=>gx('PUT',`${path}:/content`,data instanceof Blob?data:new Blob([data],{type}),{headers:{'Content-Type':type}});
+  async function initKeys(){
+    const ap='/me/drive/special/approot:/'+KEYF;let f=null;
+    try{f=await readDrive(ap);}catch(e){console.error(e);throw Object.assign(new Error('keys'),{code:'keys'});}
+    if(f){const j=JSON.parse(new TextDecoder().decode(f.buf));
+      K.enc=await crypto.subtle.importKey('jwk',j.encPriv,RSA,false,['unwrapKey']);K.sig=await crypto.subtle.importKey('jwk',j.sigPriv,ECD,false,['sign']);K.encPub=j.encPub;K.sigPub=j.sigPub;}
+    else{
+      const e=await crypto.subtle.generateKey({...RSA,modulusLength:2048,publicExponent:new Uint8Array([1,0,1])},true,['wrapKey','unwrapKey']);
+      const s=await crypto.subtle.generateKey(ECD,true,['sign','verify']);
+      const j={v:1,encPriv:await crypto.subtle.exportKey('jwk',e.privateKey),encPub:await crypto.subtle.exportKey('jwk',e.publicKey),sigPriv:await crypto.subtle.exportKey('jwk',s.privateKey),sigPub:await crypto.subtle.exportKey('jwk',s.publicKey),at:new Date().toISOString()};
+      await putDrive(ap,JSON.stringify(j));K.enc=e.privateKey;K.sig=s.privateKey;K.encPub=j.encPub;K.sigPub=j.sigPub;}
+    const mine=await pubOf(ME.email,true);
+    if(!mine||fp(mine.enc)!==fp(K.encPub)||fp(mine.sig)!==fp(K.sigPub))await putDrive(`/sites/${SITE}/drive/root:/LeaveFiles/_pub/${encodeURIComponent(ME.email)}.json`,JSON.stringify({email:ME.email,enc:K.encPub,sig:K.sigPub,at:new Date().toISOString()}));
+    K.pub[ME.email]={enc:K.encPub,sig:K.sigPub};
+  }
+  async function pubOf(email,fresh){   // 본인이 직접 올린 공개 키만 믿는다
+    if(!fresh&&email in K.pub)return K.pub[email];
+    let f=null;try{f=await readDrive(`/sites/${SITE}/drive/root:/LeaveFiles/_pub/${encodeURIComponent(email)}.json`);}catch(e){console.warn(e);}
+    let v=null;
+    if(f&&emailOf(f.it)===email&&modOf(f.it)===email){try{const j=JSON.parse(new TextDecoder().decode(f.buf));if(j.email===email)v={enc:j.enc,sig:j.sig};}catch{}}
+    K.pub[email]=v;return v;
+  }
+  const encKeyOf=async email=>{const p=await pubOf(email);return p?.enc?crypto.subtle.importKey('jwk',{kty:p.enc.kty,n:p.enc.n,e:p.enc.e,alg:p.enc.alg,ext:true},RSA,false,['wrapKey']):null;};
+  const sigKeyOf=async email=>{const p=await pubOf(email);return p?.sig?crypto.subtle.importKey('jwk',{kty:p.sig.kty,crv:p.sig.crv,x:p.sig.x,y:p.sig.y,ext:true},ECD,false,['verify']):null;};
+
+  /* ---------- 보안: 관리자 서명 (인사정보 Pro·대체휴가 Comp) ----------
+     직원 본인 항목에 들어 있어 본인이 고칠 수 있으므로, 관리자가 서명한 값만 인정한다.
+     서명 도입 전 값(서명 없음)은 config.signedSince 가 생기기 전까지만 인정하고, 관리자가 화면을 열면 자동으로 서명된다. */
+  const signText=(id,f,d)=>JSON.stringify({t:id,f,d});
+  async function signVal(id,f,d){const s=await crypto.subtle.sign(ECS,K.sig,new TextEncoder().encode(signText(id,f,d)));return JSON.stringify({__s:1,by:ME.email,sig:b64(s),d});}
+  async function verifyProComp(items){
+    for(const it of items){const t=it.fields?.Title;if(!t||t.includes('#'))continue;
+      for(const f of ['Pro','Comp']){const raw=it.fields?.[f];if(!raw)continue;let o;try{o=JSON.parse(raw);}catch{continue;}if(!o||o.__s!==1)continue;
+        const key=it.id+':'+f+':'+o.sig;if(K.ver.has(key))continue;let ok=false;
+        try{if(isAdm(o.by)){const pk=await sigKeyOf(o.by);ok=!!pk&&await crypto.subtle.verify(ECS,pk,unb64(o.sig),new TextEncoder().encode(signText(t,f,o.d)));}}catch(e){console.warn(e);}
+        K.ver.set(key,ok);}}
+  }
+  function readProComp(it,f){const raw=it.fields?.[f];if(!raw)return undefined;let o;try{o=JSON.parse(raw);}catch{return undefined;}
+    if(o&&o.__s===1)return K.ver.get(it.id+':'+f+':'+o.sig)?o.d:undefined;
+    const since=docsOf('config').get('main')?.signedSince;return since?undefined:o;}   // 서명 도입 전 값
+
+  /* ---------- 보안: 첨부파일 잠금 ----------
+     파일마다 새 AES 키로 잠가 LeaveFiles 에 올리고, 그 키를 열람할 사람(신청자·결재자·관리자) 각자의 공개 키로 감싸
+     LeaveFiles/_k/<파일id>.json 에 둔다. 다른 직원은 SharePoint에서 파일을 열어도 내용을 볼 수 없다. */
+  const keyPath=id=>`/sites/${SITE}/drive/root:/LeaveFiles/_k/${id}.json`;
+  function approverMails(u,r){const out=new Set();
+    try{for(const s of chainFor(u))for(const a of (typeof s==='string'?approversFor(s,u):[s.p]))out.add(a);}catch(e){}
+    try{if(r&&r.steps)r.steps.forEach((_,i)=>recipientsAt({...r,uid:u},i).forEach(a=>out.add(a)));}catch(e){}
+    return [...out].filter(x=>String(x).includes('@')).map(x=>String(x).toLowerCase());}
+  const recipientsFor=(owner,r)=>[...new Set([owner,...ADMINS,...approverMails(owner,r)])].filter(Boolean);
+  async function wrapFor(aes,mails,keys={},kn={}){
+    for(const m of mails){const pk=await encKeyOf(m);if(!pk)continue;const f=fp(K.pub[m].enc);if(keys[m]&&kn[m]===f)continue;keys[m]=b64(await crypto.subtle.wrapKey('raw',aes,pk,RSA));kn[m]=f;}
+    return {keys,kn};}
+  async function lockBytes(buf){const aes=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);const iv=crypto.getRandomValues(new Uint8Array(12));
+    const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},aes,buf));const out=new Uint8Array(MAGIC.length+ct.length);out.set(MAGIC);out.set(ct,MAGIC.length);return {aes,iv:b64(iv),blob:new Blob([out],{type:'application/octet-stream'})};}
+  const isLocked=buf=>{const a=new Uint8Array(buf,0,Math.min(MAGIC.length,buf.byteLength));return a.length===MAGIC.length&&a.every((x,i)=>x===MAGIC[i]);};
+  async function aesOf(meta){const w=meta.keys&&meta.keys[ME.email];if(!w)return null;return crypto.subtle.unwrapKey('raw',unb64(w),K.enc,RSA,{name:'AES-GCM'},true,['encrypt','decrypt']);}
+  async function readMeta(id){const f=await readDrive(keyPath(id));return f?JSON.parse(new TextDecoder().decode(f.buf)):null;}
+  async function uploadBlob(path,blob){
+    if(blob.size<=4*1024*1024)return gx('PUT',`/sites/${SITE}/drive/root:/${encodeURI(path)}:/content`,blob,{headers:{'Content-Type':'application/octet-stream'}});
+    const sess=await gx('POST',`/sites/${SITE}/drive/root:/${encodeURI(path)}:/createUploadSession`,{item:{'@microsoft.graph.conflictBehavior':'rename'}});
+    const CH=5*1024*1024;let res;
+    for(let s=0;s<blob.size;s+=CH){const e=Math.min(blob.size,s+CH);res=await fetch(sess.uploadUrl,{method:'PUT',headers:{'Content-Range':`bytes ${s}-${e-1}/${blob.size}`},body:blob.slice(s,e)});if(!res.ok&&res.status!==202){const er=new Error('upload');er.code='graph';throw er;}}
+    return res.json();}
+  async function lockExisting(id,owner,r){   // 잠그기 전에 올라간 첨부를 그 자리에서 잠근다
+    const f=await readDrive(`/sites/${SITE}/drive/items/${id}`);if(!f||isLocked(f.buf))return false;
+    const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,name,file`);
+    const L=await lockBytes(f.buf);const {keys,kn}=await wrapFor(L.aes,recipientsFor(owner,r));
+    if(!keys[ME.email])return false;
+    await putDrive(keyPath(id),JSON.stringify({v:1,iv:L.iv,owner,type:it.file?.mimeType||'',keys,kn}));
+    await gx('PUT',`/sites/${SITE}/drive/items/${id}/content`,L.blob,{headers:{'Content-Type':'application/octet-stream'}});
+    return true;}
+  /* 내가 신청자이거나 관리자인 첨부: 아직 안 잠긴 파일은 잠그고, 새로 생긴 결재자·관리자에게 열람 키를 나눠 준다. */
+  let syncing=false;
+  async function syncFiles(){
+    if(syncing||!K.enc)return;syncing=true;let n=0;
+    try{
+      let reqs=[];try{reqs=allRequests();}catch(e){return;}
+      const seen=new Set();
+      for(const r of reqs){const owner=String(r.uid||'').toLowerCase();if(!(owner===ME.email||isAdm(ME.email)))continue;
+        for(const fi of (r.files||[])){if(!fi?.id||seen.has(fi.id))continue;seen.add(fi.id);if(n>=40)return;
+          const done='khfsync:'+fi.id+':'+recipientsFor(owner,r).join(',');try{if(sessionStorage.getItem(done))continue;}catch{}
+          try{const meta=await readMeta(fi.id);
+            if(!meta){if(await lockExisting(fi.id,owner,r))n++;}
+            else{const aes=await aesOf(meta);if(aes){const before=JSON.stringify(meta.keys);await wrapFor(aes,recipientsFor(owner,r),meta.keys,meta.kn||(meta.kn={}));if(JSON.stringify(meta.keys)!==before){await putDrive(keyPath(fi.id),JSON.stringify(meta));n++;}}}
+            try{sessionStorage.setItem(done,'1');}catch{}
+          }catch(e){console.warn('첨부 잠금 확인 실패',fi.id,e);}
+        }}
+    }finally{syncing=false;}
+  }
+  async function resignProComp(){   // 관리자 화면: 서명 없는 인사정보·대체휴가 값을 서명하고, 서명 도입 시점을 기록
+    if(!isAdm(ME.email)||!K.sig)return;
+    const cfg=docsOf('config').get('main');if(cfg?.signedSince)return;
+    for(const it of C('leaves').items){const t=it.fields?.Title;if(!t||t.includes('#'))continue;
+      for(const [f,col] of [['Pro','pro'],['Comp','comp']]){const raw=it.fields?.[f];if(!raw)continue;let o;try{o=JSON.parse(raw);}catch{continue;}if(o&&o.__s===1)continue;
+        try{await gx('PATCH',`/sites/${SITE}/lists/${LIDS.leaves}/items/${it.id}/fields`,{[f]:await signVal(t,f,o)});}catch(e){console.warn(e);}}}
+    await fetchList('config');const cur=docsOf('config').get('main')||{};
+    await writeDoc('config','main',{...cur,signedSince:new Date().toISOString()});
+    await notify('leaves');
+  }
   async function fetchList(k){
     const c=C(k); if(c.loading) return c.loading;
     c.loading=(async()=>{
@@ -729,17 +855,18 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       }
       const out=[]; let url=`/sites/${SITE}/lists/${LIDS[k]}/items?$expand=fields($select=Title,Data,Pro,Comp)&$top=999`;
       while(url){const j=await gx('GET',url);out.push(...j.value);url=j['@odata.nextLink']||null;}
+      if(k==='leaves'){try{await verifyProComp(out);}catch(e){console.warn(e);}}
       c.items=out; c.at=Date.now();
       if(k==='config'){const d=docsOf('config').get('main');ADMINS=((d&&d.admins)||[]).map(x=>String(x).toLowerCase());}
       return out;
     })().finally(()=>{c.loading=null;});
     return c.loading;
   }
-  function parseData(raw,items,title){
+  function parseData(raw,items,title,base){
     if(raw==null||raw==='') return null;
     if(raw.charCodeAt(0)===1){
       const m=raw.match(/^\u0001(\d+)\u0001/); const n=Number(m[1]); let s=raw.slice(m[0].length);
-      for(let i=1;i<n;i++){const p=items.find(it=>it.fields?.Title===`${title}#${i}`);if(!p)return null;s+=p.fields.Data||'';}
+      for(let i=1;i<n;i++){const p=items.find(it=>it.fields?.Title===`${title}#${i}`&&samePart(it,base));if(!p)return null;s+=p.fields.Data||'';}
       raw=s;
     }
     try{return JSON.parse(raw);}catch{return null;}
@@ -747,18 +874,19 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
   function pickItem(k,id){
     const its=C(k).items.filter(it=>it.fields?.Title===id);
     if(!its.length) return null;
-    if(SELF_LISTS.includes(k)){const own=its.find(it=>emailOf(it)===id);if(own)return own;const adm=its.find(it=>ADMINS.includes(emailOf(it)));return adm||null;}
+    if(SELF_LISTS.includes(k)){const own=its.find(it=>okOwn(it,id));if(own)return own;const adm=its.find(okAdm);return adm||null;}
+    if(k==='approvals')return its.find(okAdm)||null;   // 관리자 승인·반려는 관리자가 만들고 고친 것만
     return its[0];
   }
   function docsOf(k){
     const items=C(k).items, m=new Map();
     if(k==='pro'||k==='comp'){
       const f=k==='pro'?'Pro':'Comp';
-      for(const it of C('leaves').items){const t=it.fields?.Title;if(!t||t.includes('#')||!it.fields?.[f])continue;try{const d=JSON.parse(it.fields[f]);if(!m.has(t)||emailOf(it)===t)m.set(t,d);}catch{}}
+      for(const it of C('leaves').items){const t=it.fields?.Title;if(!t||t.includes('#')||!it.fields?.[f])continue;if(!(okOwn(it,t)||okAdm(it)))continue;const d=readProComp(it,f);if(d!==undefined&&(!m.has(t)||emailOf(it)===t))m.set(t,d);}
       return m;
     }
     const titles=new Set(items.map(it=>it.fields?.Title).filter(t=>t&&!t.includes('#')));
-    for(const t of titles){const it=pickItem(k,t);if(!it)continue;const d=parseData(it.fields?.Data,items,t);if(d!=null)m.set(t,d);}
+    for(const t of titles){const it=pickItem(k,t);if(!it)continue;const d=parseData(it.fields?.Data,items,t,it);if(d!=null)m.set(t,d);}
     return m;
   }
   const listKeyOf=col=>(col==='pro'||col==='comp')?'leaves':col;
@@ -774,8 +902,10 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     const k=listKeyOf(col), lid=LIDS[k];
     await fetchList(k);
     const field=col==='pro'?'Pro':col==='comp'?'Comp':'Data';
-    const json=value==null?'':JSON.stringify(value);
-    let target=SELF_LISTS.includes(k)?(C(k).items.find(it=>it.fields?.Title===id&&emailOf(it)===ME.email)||pickItem(k,id)):pickItem(k,id);
+    const mineOnly=it=>!SELF_LISTS.includes(k)||emailOf(it)===ME.email;
+    const json=value==null?'':(field!=='Data'&&K.sig?await signVal(id,field,value):JSON.stringify(value));
+    // 직원은 자기가 만든 항목만 고친다(남이 만든 항목을 고치면 그 기록이 무효가 되므로). 관리자는 직원 항목을 고칠 수 있다.
+    let target=SELF_LISTS.includes(k)?(C(k).items.find(it=>it.fields?.Title===id&&emailOf(it)===ME.email)||(field!=='Data'||isAdm(ME.email)?pickItem(k,id):null)):pickItem(k,id);
     if(field!=='Data'){
       if(target) await gx('PATCH',`/sites/${SITE}/lists/${lid}/items/${target.id}/fields`,{[field]:json});
       else await gx('POST',`/sites/${SITE}/lists/${lid}/items`,{fields:{Title:id,Data:'{"requests":[]}',[field]:json}});
@@ -786,11 +916,11 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     if(target) await gx('PATCH',`/sites/${SITE}/lists/${lid}/items/${target.id}/fields`,{Data:first});
     else await gx('POST',`/sites/${SITE}/lists/${lid}/items`,{fields:{Title:id,Data:first}});
     for(let i=1;i<parts.length;i++){
-      const t=`${id}#${i}`, ex=C(k).items.find(it=>it.fields?.Title===t);
+      const t=`${id}#${i}`, ex=C(k).items.find(it=>it.fields?.Title===t&&mineOnly(it));
       if(ex) await gx('PATCH',`/sites/${SITE}/lists/${lid}/items/${ex.id}/fields`,{Data:parts[i]});
       else await gx('POST',`/sites/${SITE}/lists/${lid}/items`,{fields:{Title:t,Data:parts[i]}});
     }
-    for(const it of C(k).items){const m=(it.fields?.Title||'').match(/^(.*)#(\d+)$/);if(m&&m[1]===id&&Number(m[2])>=parts.length)await gx('DELETE',`/sites/${SITE}/lists/${lid}/items/${it.id}`);}
+    for(const it of C(k).items){const m=(it.fields?.Title||'').match(/^(.*)#(\d+)$/);if(m&&m[1]===id&&Number(m[2])>=parts.length&&mineOnly(it))await gx('DELETE',`/sites/${SITE}/lists/${lid}/items/${it.id}`);}
     return notify(k);
   }
   async function deleteDoc(col,id){
@@ -851,24 +981,19 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
   const assets={
     async upload(file,opts={}){
       if(file.size>20*1024*1024){const e=new Error('too large');e.code='too_large';throw e;}
-      const safe=(file.name||'file').replace(/[\\/:*?"<>|#%]/g,'_');
-      const path=`LeaveFiles/${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}_${safe}`;
-      let item;
-      if(file.size<=4*1024*1024){
-        item=await gx('PUT',`/sites/${SITE}/drive/root:/${encodeURI(path)}:/content`,file,{headers:{'Content-Type':opts.type||file.type||'application/octet-stream'}});
-      }else{
-        const sess=await gx('POST',`/sites/${SITE}/drive/root:/${encodeURI(path)}:/createUploadSession`,{item:{'@microsoft.graph.conflictBehavior':'rename'}});
-        const CH=5*1024*1024; let res;
-        for(let s=0;s<file.size;s+=CH){
-          const e=Math.min(file.size,s+CH);
-          res=await fetch(sess.uploadUrl,{method:'PUT',headers:{'Content-Range':`bytes ${s}-${e-1}/${file.size}`},body:file.slice(s,e)});
-          if(!res.ok&&res.status!==202){const er=new Error('upload');er.code='graph';throw er;}
-        }
-        item=await res.json();
-      }
-      return {id:item.id,url:'',contentType:opts.type||file.type||item.file?.mimeType||'',sizeBytes:item.size};
+      if(!K.enc){const e=new Error('keys');e.code='graph';throw e;}
+      const name=`${Date.now().toString(36)}_${Math.random().toString(36).slice(2,10)}.bin`;   // 원래 파일 이름은 잠긴 정보 안에만 남긴다
+      const L=await lockBytes(await file.arrayBuffer());
+      const item=await uploadBlob(`LeaveFiles/${name}`,L.blob);
+      try{const {keys,kn}=await wrapFor(L.aes,recipientsFor(ME.email));
+        await putDrive(keyPath(item.id),JSON.stringify({v:1,iv:L.iv,owner:ME.email,type:opts.type||file.type||'',keys,kn}));}
+      catch(e){try{await gx('DELETE',`/sites/${SITE}/drive/items/${item.id}`);}catch{}throw e;}
+      return {id:item.id,url:'',contentType:opts.type||file.type||'',sizeBytes:file.size};
     },
-    async delete(id){try{await gx('DELETE',`/sites/${SITE}/drive/items/${id}`);}catch(e){if(e.status!==404)throw e;}}
+    async delete(id){
+      try{await gx('DELETE',`/sites/${SITE}/drive/items/${id}`);}catch(e){if(e.status!==404)throw e;}
+      try{const k=await gx('GET',`${keyPath(id)}?$select=id`);await gx('DELETE',`/sites/${SITE}/drive/items/${k.id}`);}catch(e){}
+    }
   };
   async function hrLite(){const out=[];let url=`/sites/${SITE}/lists/${LIDS.hr}/items?$expand=fields($select=Title)&$select=id,createdDateTime,createdBy&$top=999`;while(url){const j=await gx('GET',url);out.push(...j.value);url=j['@odata.nextLink']||null;}return out;}
   window.__backup={
@@ -883,11 +1008,18 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     async get(id){
       const its=(await hrLite()).filter(it=>{const t=it.fields?.Title||'';return t===id||t.startsWith(id+'#');}), full=[];
       for(const it of its) full.push(await gx('GET',`/sites/${SITE}/lists/${LIDS.hr}/items/${it.id}?$expand=fields($select=Title,Data)`));
-      const base=full.find(it=>it.fields.Title===id); return base?parseData(base.fields.Data,full,id):null;
+      const base=full.find(it=>it.fields.Title===id); return base?parseData(base.fields.Data,full,id,base):null;
     }
   };
   window.__fileUrl=async id=>{const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,name,webUrl`);return it.webUrl;};
-  window.__blob=async id=>{const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,@microsoft.graph.downloadUrl`);const r=await fetch(it['@microsoft.graph.downloadUrl']);if(!r.ok)throw new Error('download');return r.blob();};
+  window.__blob=async id=>{
+    const f=await readDrive(`/sites/${SITE}/drive/items/${id}`);if(!f)throw new Error('download');
+    if(!isLocked(f.buf))return new Blob([f.buf]);   // 잠그기 전 파일
+    const meta=await readMeta(id);const aes=meta&&await aesOf(meta).catch(()=>null);
+    if(!aes){try{notice('이 첨부파일을 열 수 있는 열람 키가 아직 없어요. 신청자나 관리자가 휴가 관리를 한 번 열면 자동으로 열 수 있게 돼요.');}catch{}throw new Error('locked');}
+    const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(meta.iv)},aes,f.buf.slice(MAGIC.length));
+    return new Blob([pt],{type:meta.type||''});
+  };
 
   /* ---------- 내려받기·메일 ---------- */
   const downloads={async save({filename,data}){const url=URL.createObjectURL(data instanceof Blob?data:new Blob([data]));const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}};
@@ -941,6 +1073,11 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       gate('SharePoint에 연결하지 못했어요',`<p class="err">${e.status===403||e.status===404?'휴가 관리 사이트에 접근 권한이 없어요. 관리자에게 사이트 구성원으로 추가해 달라고 요청해 주세요.':esc(e.message)}</p>`,[['다시 시도',()=>location.reload()],['다른 계정으로 로그인',()=>MS.logoutRedirect(),true]]);
       return;
     }
+    try{await initKeys();}catch(e){
+      console.error(e);
+      gate('보안 키를 준비하지 못했어요',`<p class="err">첨부파일 잠금에 쓰는 개인 키를 OneDrive 앱 폴더에 만들지 못했어요. 관리자에게 이 앱의 <b>Files.ReadWrite.AppFolder</b> 권한 동의와 내 OneDrive 사용 여부를 확인해 달라고 요청해 주세요.</p>`,[['다시 시도',()=>location.reload()]]);
+      return;
+    }
     // Leave_HR은 관리자만 볼 수 있어서 직원에게는 안 보이는 게 정상이에요.
     const missing=Object.keys(LISTS).filter(k=>k!=='hr'&&!LIDS[k]);
     if(missing.length&&!missing.includes('config')){
@@ -957,6 +1094,8 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       return;
     }
     hideGate(); readyRes();
+    const housekeeping=async()=>{try{await fetchList('leaves');await resignProComp();}catch(e){console.warn(e);}try{await syncFiles();}catch(e){console.warn(e);}};
+    setTimeout(housekeeping,4000);setInterval(()=>{if(document.visibilityState==='visible')housekeeping();},5*60*1000);
   })();
 })();
 
@@ -1631,7 +1770,7 @@ async function readRosterFile(file){
   try{
     const buf=await file.arrayBuffer(); let rows;
     if(/\.xlsx?$/i.test(file.name)){
-      if(!window.XLSX) await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=ok;s.onerror=no;document.head.append(s);});
+      if(!window.XLSX) await new Promise((ok,no)=>{const s=document.createElement('script');s.src='lib/xlsx.full.min.js';s.onload=ok;s.onerror=no;document.head.append(s);});
       const wb=XLSX.read(buf,{type:'array',cellDates:true});
       rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:false,dateNF:'yyyy-mm-dd',defval:''}).map(r=>r.map(c=>String(c).trim())).filter(r=>r.some(Boolean));
     }else{
@@ -1974,7 +2113,7 @@ function renderReport(){
 async function reportXlsx(){
   const R=S.report; if(!R) return; const btn=$('rpXlsx'); btn.disabled=true;
   try{
-    if(!window.ExcelJS) await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';s.onload=ok;s.onerror=no;document.head.append(s);});
+    if(!window.ExcelJS) await new Promise((ok,no)=>{const s=document.createElement('script');s.src='lib/exceljs.min.js';s.onload=ok;s.onerror=no;document.head.append(s);});
     const wb=new ExcelJS.Workbook(), ws=wb.addWorksheet(R.sheet,{pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:1,horizontalCentered:true,margins:{left:0.2,right:0.2,top:0.3,bottom:0.3,header:0.1,footer:0.1}}});
     const n=R.head.length, font={name:'맑은 고딕',size:9}, thin={style:'thin',color:{argb:'FF999999'}}, border={top:thin,left:thin,bottom:thin,right:thin};
     ws.columns=R.w.map(x=>({width:Math.max(4,x*0.55)}));
