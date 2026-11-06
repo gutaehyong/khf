@@ -163,23 +163,6 @@ tr:last-child td{border-bottom:0}
 .sg .lv.part{background:transparent;color:var(--t);border:1.5px solid var(--t);line-height:19px}
 .sg .lv.pend{background:transparent;color:var(--t);border:1.5px dashed var(--t);line-height:19px}
 .sg tfoot td{font-variant-numeric:tabular-nums;font-weight:600;background:var(--bg)}
-.wk{border-collapse:separate;border-spacing:0;font-size:12.5px;width:100%;border-top:1px solid var(--line);border-left:1px solid var(--line)}
-.wk th,.wk td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:4px;vertical-align:top;min-width:108px}
-.wk thead th{background:var(--bg);font-weight:500;color:var(--muted);font-size:12px;text-align:center;padding:5px 4px}
-.wk thead th b{display:block;font-size:13px;color:var(--ink)}
-.wk thead th.sun b,.wk thead th.hol b{color:var(--hol)} .wk thead th.sat b{color:var(--sat)}
-.wk thead th.today{background:var(--accent-soft)}
-.wk thead th small{display:block;color:var(--hol);font-size:11px}
-.wk .nm{position:sticky;left:0;background:var(--surface);white-space:nowrap;min-width:116px;z-index:1;vertical-align:middle;padding:4px 10px;text-align:left}
-.wk .nm small{color:var(--muted);font-size:11.5px;margin-left:5px}
-.wk td.offd{background:var(--bg)}
-.wk td.na{background:repeating-linear-gradient(135deg,var(--bg) 0 4px,transparent 4px 8px)}
-.wk .grp td{background:var(--cell);font-weight:600;padding:3px 10px;vertical-align:middle}
-.wk .it{border-left:3px solid var(--t);background:var(--bg);border-radius:4px;padding:3px 6px;margin:2px 0;line-height:1.4}
-.wk .it.pend{border-left-style:dashed;background:transparent;outline:1px dashed var(--line)}
-.wk .it b{font-size:12.5px} .wk .it div{font-size:11.5px;color:var(--muted)}
-.wk .it .files{margin-top:2px} .wk .it .file{font-size:11px}
-.wk tfoot td{font-weight:600;background:var(--bg);text-align:center;font-variant-numeric:tabular-nums;vertical-align:middle}
 .sg tfoot td.nm{background:var(--bg);font-weight:600}
 .sg td.tot{font-variant-numeric:tabular-nums;color:var(--muted);padding:0 8px;white-space:nowrap}
 .paper-wrap{overflow-x:auto;padding:4px 2px 12px}
@@ -397,18 +380,13 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
         <div class="m" id="calTitle"></div>
         <button class="btn ghost sm" id="nextM">다음 ›</button>
       </div>
-      <div class="seg" id="calMode" role="group" aria-label="보기" style="max-width:400px;margin:0 auto 16px">
-        <button type="button" data-m="staff">인원 현황</button><button type="button" data-m="week">주간 달력</button><button type="button" data-m="month">월간 달력</button>
+      <div class="seg" id="calMode" role="group" aria-label="보기" style="max-width:280px;margin:0 auto 16px">
+        <button type="button" data-m="staff">인원 현황</button><button type="button" data-m="month">월간 달력</button>
       </div>
       <div id="staffWrap">
         <div class="daysum" id="daySum"></div>
         <div class="tbl-wrap"><table class="sg" id="sg"></table></div>
         <div class="legend" id="sgLegend"></div>
-      </div>
-      <div id="weekWrap" class="hidden">
-        <div class="row between" id="wkBar" style="margin-bottom:10px;flex-wrap:wrap;gap:8px"></div>
-        <div class="tbl-wrap"><table class="wk" id="wk"></table></div>
-        <div class="legend" id="wkLegend"></div>
       </div>
       <div id="monthWrap" class="hidden">
         <div class="tbl-wrap"><div class="cal" id="cal"></div></div>
@@ -481,13 +459,6 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
         <div class="row between" style="margin-bottom:14px">
           <h2 style="margin:0" id="allTitle">전체 신청 내역</h2>
           <button class="btn ghost sm" id="csvAll">CSV 내보내기</button>
-        </div>
-        <div class="row" style="gap:10px;flex-wrap:wrap;margin:-4px 0 12px;align-items:center">
-          <label class="small muted">팀 <select id="afTeam" style="width:auto"></select></label>
-          <label class="small muted">직원 <select id="afWho" style="width:auto"></select></label>
-          <label class="small muted">상태 <select id="afSt" style="width:auto"></select></label>
-          <label class="small muted">정렬 <select id="afSort" style="width:auto"><option value="team">팀·인원 순</option><option value="date">기간 순 (최근)</option><option value="created">신청한 순 (최근)</option></select></label>
-          <span class="muted small" id="afCount"></span>
         </div>
         <div class="tbl-wrap"><table>
           <thead><tr><th>직원</th><th>기간</th><th>종류</th><th class="num">사용</th><th>결재선</th><th>상태</th><th></th></tr></thead>
@@ -619,7 +590,6 @@ window.APP_CONFIG={
   tenantId:'d95f94b4-77a6-4925-92fb-59d55d740283',
   siteHost:'kohem.sharepoint.com',
   sitePath:'/sites/khf',
-  sitesScope:'Sites.ReadWrite.All',   // Sites.Selected 설정 전이면 'Sites.ReadWrite.All' 로 바꿔 두세요
   redirectUri:''   // 비워 두면 현재 주소를 써요
 };
 </script>
@@ -702,10 +672,8 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
 (function(){
   const A=window.APP_CONFIG||{};
   const G='https://graph.microsoft.com/v1.0';
-  // 사이트 권한: 기본은 khf 사이트 하나만 허용하는 Sites.Selected. 문제가 생기면 APP_CONFIG.sitesScope 를 'Sites.ReadWrite.All' 로 바꾸면 예전처럼 동작해요.
-  const SITES_SCOPE=A.sitesScope||'Sites.Selected';
-  const SCOPES=['User.Read','User.ReadBasic.All',SITES_SCOPE,'Mail.Send','Files.ReadWrite'];
-  const SETUP_SCOPES=SCOPES;   // 목록을 새로 만들 때는 Graph에서 이 앱의 사이트 권한을 잠깐 manage로 올려 주세요
+  const SCOPES=['User.Read','User.ReadBasic.All','Sites.ReadWrite.All','Mail.Send'];
+  const SETUP_SCOPES=[...SCOPES,'Sites.Manage.All'];
   const LISTS={leaves:'Leave_Requests',cal:'Leave_Calendar',decisions:'Leave_Decisions',approvals:'Leave_Overrides',config:'Leave_Config',hr:'Leave_HR'};
   const SELF_LISTS=['leaves','cal','decisions'];          // 문서 id = 작성자 메일
   const POLL=30000, CHUNK=60000;
@@ -750,142 +718,6 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
   const cache={};   // listKey -> {items, at, subs:Set, loading}
   const C=k=>cache[k]||(cache[k]={items:[],at:0,subs:new Set(),loading:null});
   const emailOf=it=>String(it.createdBy?.user?.email||'').toLowerCase();
-
-  /* ---------- 보안: 기록 위조 검사 ----------
-     SharePoint가 자동으로 남기는 '만든 사람'과 '마지막으로 고친 사람'을 함께 본다.
-     본인 기록은 본인이나 관리자가 마지막으로 고친 것만 인정한다. */
-  const modOf=it=>String(it.lastModifiedBy?.user?.email||'').toLowerCase();
-  const isAdm=e=>!!e&&ADMINS.includes(e);
-  const okOwn=(it,id)=>emailOf(it)===id&&(modOf(it)===id||isAdm(modOf(it)));
-  const okAdm=it=>isAdm(emailOf(it))&&isAdm(modOf(it));
-  const samePart=(it,base)=>!base||(emailOf(it)===emailOf(base)&&(modOf(it)===emailOf(base)||isAdm(modOf(it))));
-
-  /* ---------- 보안: 개인 키 ----------
-     직원마다 키 한 쌍(잠금용 RSA, 서명용 ECDSA)을 만든다.
-     개인 키는 본인 OneDrive의 Apps/KHF-Leave 폴더에만, 공개 키는 LeaveFiles/_pub/<메일>.json 에 둔다. */
-  const RSA={name:'RSA-OAEP',hash:'SHA-256'}, ECD={name:'ECDSA',namedCurve:'P-256'}, ECS={name:'ECDSA',hash:'SHA-256'};
-  const b64=buf=>{let s='';const a=new Uint8Array(buf);for(let i=0;i<a.length;i+=8192)s+=String.fromCharCode.apply(null,a.subarray(i,i+8192));return btoa(s);};
-  const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
-  const fp=j=>String(j&&j.n||j&&j.x||'').slice(0,16);
-  const KEYF='leave-keys.json', MAGIC=new TextEncoder().encode('KHFENC1\n');
-  const K={enc:null,sig:null,encPub:null,sigPub:null,pub:{},ver:new Map()};
-  async function readDrive(path){   // path: Graph 경로(…:/content 없이). 없으면 null
-    let it;try{it=await gx('GET',path);}catch(e){if(e.status===404)return null;throw e;}
-    // 1) 내려받기 주소로 받기  2) 안 되면 Graph content 주소로 받기 (회사 OneDrive는 1번 주소가 빠지는 경우가 있음)
-    let url=it['@microsoft.graph.downloadUrl'],st='';
-    if(url){try{const r=await fetch(url);if(r.ok)return {it,buf:await r.arrayBuffer()};st='url '+r.status;}catch(e){st='url '+e.message;}}
-    const drv=it.parentReference?.driveId;
-    const cp=drv?`${G}/drives/${drv}/items/${it.id}/content`:`${G}${path.replace(/\?.*$/,'')}:/content`;
-    try{const r=await fetch(cp,{headers:{Authorization:'Bearer '+await token()}});if(r.ok)return {it,buf:await r.arrayBuffer()};st+=' / content '+r.status;}catch(e){st+=' / content '+e.message;}
-    throw Object.assign(new Error('download ('+(url?'':'주소 없음 ')+st+')'),{code:'graph'});
-  }
-  const putDrive=(path,data,type='application/json')=>gx('PUT',`${path}:/content`,data instanceof Blob?data:new Blob([data],{type}),{headers:{'Content-Type':type}});
-  async function initKeys(){
-    const step=(name,fn)=>fn().catch(e=>{e.step=name;throw e;});
-    const ap='/me/drive/root:/Apps/KHF-Leave/'+KEYF;   // 본인 OneDrive의 Apps/KHF-Leave 폴더
-    const f=await step('OneDrive 개인 키 읽기',()=>readDrive(ap));
-    if(f){const j=JSON.parse(new TextDecoder().decode(f.buf));
-      K.enc=await crypto.subtle.importKey('jwk',j.encPriv,RSA,false,['unwrapKey']);K.sig=await crypto.subtle.importKey('jwk',j.sigPriv,ECD,false,['sign']);K.encPub=j.encPub;K.sigPub=j.sigPub;}
-    else{
-      const e=await crypto.subtle.generateKey({...RSA,modulusLength:2048,publicExponent:new Uint8Array([1,0,1])},true,['wrapKey','unwrapKey']);
-      const s=await crypto.subtle.generateKey(ECD,true,['sign','verify']);
-      const j={v:1,encPriv:await crypto.subtle.exportKey('jwk',e.privateKey),encPub:await crypto.subtle.exportKey('jwk',e.publicKey),sigPriv:await crypto.subtle.exportKey('jwk',s.privateKey),sigPub:await crypto.subtle.exportKey('jwk',s.publicKey),at:new Date().toISOString()};
-      await step('OneDrive 개인 키 저장',()=>putDrive(ap,JSON.stringify(j)));K.enc=e.privateKey;K.sig=s.privateKey;K.encPub=j.encPub;K.sigPub=j.sigPub;}
-    K.pub[ME.email]={enc:K.encPub,sig:K.sigPub};
-    // 공개 키 게시: 실패해도 내 키는 쓸 수 있으니 휴가 관리를 막지 않는다(다음 접속 때 다시 시도)
-    try{const mine=await pubOf(ME.email,true);
-      if(!mine||fp(mine.enc)!==fp(K.encPub)||fp(mine.sig)!==fp(K.sigPub))await putDrive(`/sites/${SITE}/drive/root:/LeaveFiles/_pub/${encodeURIComponent(ME.email)}.json`,JSON.stringify({email:ME.email,enc:K.encPub,sig:K.sigPub,at:new Date().toISOString()}));
-      K.pub[ME.email]={enc:K.encPub,sig:K.sigPub};}
-    catch(e){console.warn('공개 키 게시 실패',e);K.pubErr=e;K.pub[ME.email]={enc:K.encPub,sig:K.sigPub};}
-  }
-  const idCache={};
-  async function aadIdOf(email){if(email in idCache)return idCache[email];let v=null;try{v=(await gx('GET',`/users/${encodeURIComponent(email)}?$select=id`)).id;}catch{}return idCache[email]=v;}
-  async function sameUser(ident,email){const u=ident?.user||{};if(String(u.email||'').toLowerCase()===email)return true;const id=await aadIdOf(email);return !!id&&u.id===id;}
-  async function pubOf(email,fresh){   // 본인이 직접 올린 공개 키만 믿는다
-    if(!fresh&&email in K.pub)return K.pub[email];
-    let f=null;try{f=await readDrive(`/sites/${SITE}/drive/root:/LeaveFiles/_pub/${encodeURIComponent(email)}.json`);}catch(e){console.warn(e);}
-    let v=null;
-    if(f&&await sameUser(f.it.createdBy,email)&&await sameUser(f.it.lastModifiedBy,email)){try{const j=JSON.parse(new TextDecoder().decode(f.buf));if(j.email===email)v={enc:j.enc,sig:j.sig};}catch{}}
-    K.pub[email]=v;return v;
-  }
-  const encKeyOf=async email=>{const p=await pubOf(email);return p?.enc?crypto.subtle.importKey('jwk',{kty:p.enc.kty,n:p.enc.n,e:p.enc.e,alg:p.enc.alg,ext:true},RSA,false,['wrapKey']):null;};
-  const sigKeyOf=async email=>{const p=await pubOf(email);return p?.sig?crypto.subtle.importKey('jwk',{kty:p.sig.kty,crv:p.sig.crv,x:p.sig.x,y:p.sig.y,ext:true},ECD,false,['verify']):null;};
-
-  /* ---------- 보안: 관리자 서명 (인사정보 Pro·대체휴가 Comp) ----------
-     직원 본인 항목에 들어 있어 본인이 고칠 수 있으므로, 관리자가 서명한 값만 인정한다.
-     서명 도입 전 값(서명 없음)은 config.signedSince 가 생기기 전까지만 인정하고, 관리자가 화면을 열면 자동으로 서명된다. */
-  const signText=(id,f,d)=>JSON.stringify({t:id,f,d});
-  async function signVal(id,f,d){const s=await crypto.subtle.sign(ECS,K.sig,new TextEncoder().encode(signText(id,f,d)));return JSON.stringify({__s:1,by:ME.email,sig:b64(s),d});}
-  async function verifyProComp(items){
-    for(const it of items){const t=it.fields?.Title;if(!t||t.includes('#'))continue;
-      for(const f of ['Pro','Comp']){const raw=it.fields?.[f];if(!raw)continue;let o;try{o=JSON.parse(raw);}catch{continue;}if(!o||o.__s!==1)continue;
-        const key=it.id+':'+f+':'+o.sig;if(K.ver.has(key))continue;let ok=false;
-        try{if(isAdm(o.by)){const pk=await sigKeyOf(o.by);ok=!!pk&&await crypto.subtle.verify(ECS,pk,unb64(o.sig),new TextEncoder().encode(signText(t,f,o.d)));}}catch(e){console.warn(e);}
-        K.ver.set(key,ok);}}
-  }
-  function readProComp(it,f){const raw=it.fields?.[f];if(!raw)return undefined;let o;try{o=JSON.parse(raw);}catch{return undefined;}
-    if(o&&o.__s===1)return K.ver.get(it.id+':'+f+':'+o.sig)?o.d:undefined;
-    const since=docsOf('config').get('main')?.signedSince;return since?undefined:o;}   // 서명 도입 전 값
-
-  /* ---------- 보안: 첨부파일 잠금 ----------
-     파일마다 새 AES 키로 잠가 LeaveFiles 에 올리고, 그 키를 열람할 사람(신청자·결재자·관리자) 각자의 공개 키로 감싸
-     LeaveFiles/_k/<파일id>.json 에 둔다. 다른 직원은 SharePoint에서 파일을 열어도 내용을 볼 수 없다. */
-  const keyPath=id=>`/sites/${SITE}/drive/root:/LeaveFiles/_k/${id}.json`;
-  function approverMails(u,r){const out=new Set();
-    try{for(const s of chainFor(u))for(const a of (typeof s==='string'?approversFor(s,u):[s.p]))out.add(a);}catch(e){}
-    try{if(r&&r.steps)r.steps.forEach((_,i)=>recipientsAt({...r,uid:u},i).forEach(a=>out.add(a)));}catch(e){}
-    return [...out].filter(x=>String(x).includes('@')).map(x=>String(x).toLowerCase());}
-  const recipientsFor=(owner,r)=>[...new Set([owner,...ADMINS,...approverMails(owner,r)])].filter(Boolean);
-  async function wrapFor(aes,mails,keys={},kn={}){
-    for(const m of mails){const pk=await encKeyOf(m);if(!pk)continue;const f=fp(K.pub[m].enc);if(keys[m]&&kn[m]===f)continue;keys[m]=b64(await crypto.subtle.wrapKey('raw',aes,pk,RSA));kn[m]=f;}
-    return {keys,kn};}
-  async function lockBytes(buf){const aes=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);const iv=crypto.getRandomValues(new Uint8Array(12));
-    const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},aes,buf));const out=new Uint8Array(MAGIC.length+ct.length);out.set(MAGIC);out.set(ct,MAGIC.length);return {aes,iv:b64(iv),blob:new Blob([out],{type:'application/octet-stream'})};}
-  const isLocked=buf=>{const a=new Uint8Array(buf,0,Math.min(MAGIC.length,buf.byteLength));return a.length===MAGIC.length&&a.every((x,i)=>x===MAGIC[i]);};
-  async function aesOf(meta){const w=meta.keys&&meta.keys[ME.email];if(!w)return null;return crypto.subtle.unwrapKey('raw',unb64(w),K.enc,RSA,{name:'AES-GCM'},true,['encrypt','decrypt']);}
-  async function readMeta(id){const f=await readDrive(keyPath(id));return f?JSON.parse(new TextDecoder().decode(f.buf)):null;}
-  async function uploadBlob(path,blob){
-    if(blob.size<=4*1024*1024)return gx('PUT',`/sites/${SITE}/drive/root:/${encodeURI(path)}:/content`,blob,{headers:{'Content-Type':'application/octet-stream'}});
-    const sess=await gx('POST',`/sites/${SITE}/drive/root:/${encodeURI(path)}:/createUploadSession`,{item:{'@microsoft.graph.conflictBehavior':'rename'}});
-    const CH=5*1024*1024;let res;
-    for(let s=0;s<blob.size;s+=CH){const e=Math.min(blob.size,s+CH);res=await fetch(sess.uploadUrl,{method:'PUT',headers:{'Content-Range':`bytes ${s}-${e-1}/${blob.size}`},body:blob.slice(s,e)});if(!res.ok&&res.status!==202){const er=new Error('upload');er.code='graph';throw er;}}
-    return res.json();}
-  async function lockExisting(id,owner,r){   // 잠그기 전에 올라간 첨부를 그 자리에서 잠근다
-    const f=await readDrive(`/sites/${SITE}/drive/items/${id}`);if(!f||isLocked(f.buf))return false;
-    const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,name,file`);
-    const L=await lockBytes(f.buf);const {keys,kn}=await wrapFor(L.aes,recipientsFor(owner,r));
-    if(!keys[ME.email])return false;
-    await putDrive(keyPath(id),JSON.stringify({v:1,iv:L.iv,owner,type:it.file?.mimeType||'',keys,kn}));
-    await gx('PUT',`/sites/${SITE}/drive/items/${id}/content`,L.blob,{headers:{'Content-Type':'application/octet-stream'}});
-    return true;}
-  /* 내가 신청자이거나 관리자인 첨부: 아직 안 잠긴 파일은 잠그고, 새로 생긴 결재자·관리자에게 열람 키를 나눠 준다. */
-  let syncing=false;
-  async function syncFiles(){
-    if(syncing||!K.enc)return;syncing=true;let n=0;
-    try{
-      let reqs=[];try{reqs=allRequests();}catch(e){return;}
-      const seen=new Set();
-      for(const r of reqs){const owner=String(r.uid||'').toLowerCase();if(!(owner===ME.email||isAdm(ME.email)))continue;
-        for(const fi of (r.files||[])){if(!fi?.id||seen.has(fi.id))continue;seen.add(fi.id);if(n>=40)return;
-          const done='khfsync:'+fi.id+':'+recipientsFor(owner,r).join(',');try{if(sessionStorage.getItem(done))continue;}catch{}
-          try{const meta=await readMeta(fi.id);
-            if(!meta){if(await lockExisting(fi.id,owner,r))n++;}
-            else{const aes=await aesOf(meta);if(aes){const before=JSON.stringify(meta.keys);await wrapFor(aes,recipientsFor(owner,r),meta.keys,meta.kn||(meta.kn={}));if(JSON.stringify(meta.keys)!==before){await putDrive(keyPath(fi.id),JSON.stringify(meta));n++;}}}
-            try{sessionStorage.setItem(done,'1');}catch{}
-          }catch(e){console.warn('첨부 잠금 확인 실패',fi.id,e);}
-        }}
-    }finally{syncing=false;}
-  }
-  async function resignProComp(){   // 관리자 화면: 서명 없는 인사정보·대체휴가 값을 서명하고, 서명 도입 시점을 기록
-    if(!isAdm(ME.email)||!K.sig)return;
-    const cfg=docsOf('config').get('main');if(!cfg||cfg.signedSince)return;
-    for(const it of C('leaves').items){const t=it.fields?.Title;if(!t||t.includes('#'))continue;
-      for(const [f,col] of [['Pro','pro'],['Comp','comp']]){const raw=it.fields?.[f];if(!raw)continue;let o;try{o=JSON.parse(raw);}catch{continue;}if(o&&o.__s===1)continue;
-        try{await gx('PATCH',`/sites/${SITE}/lists/${LIDS.leaves}/items/${it.id}/fields`,{[f]:await signVal(t,f,o)});}catch(e){console.warn(e);}}}
-    await fetchList('config');const cur=docsOf('config').get('main');if(!cur||!Array.isArray(cur.admins)||!cur.admins.length)return;
-    await writeDoc('config','main',{...cur,signedSince:new Date().toISOString()});
-    await notify('leaves');
-  }
   async function fetchList(k){
     const c=C(k); if(c.loading) return c.loading;
     c.loading=(async()=>{
@@ -897,18 +729,17 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       }
       const out=[]; let url=`/sites/${SITE}/lists/${LIDS[k]}/items?$expand=fields($select=Title,Data,Pro,Comp)&$top=999`;
       while(url){const j=await gx('GET',url);out.push(...j.value);url=j['@odata.nextLink']||null;}
-      if(k==='leaves'){try{await verifyProComp(out);}catch(e){console.warn(e);}}
       c.items=out; c.at=Date.now();
       if(k==='config'){const d=docsOf('config').get('main');ADMINS=((d&&d.admins)||[]).map(x=>String(x).toLowerCase());}
       return out;
     })().finally(()=>{c.loading=null;});
     return c.loading;
   }
-  function parseData(raw,items,title,base){
+  function parseData(raw,items,title){
     if(raw==null||raw==='') return null;
     if(raw.charCodeAt(0)===1){
       const m=raw.match(/^\u0001(\d+)\u0001/); const n=Number(m[1]); let s=raw.slice(m[0].length);
-      for(let i=1;i<n;i++){const p=items.find(it=>it.fields?.Title===`${title}#${i}`&&samePart(it,base));if(!p)return null;s+=p.fields.Data||'';}
+      for(let i=1;i<n;i++){const p=items.find(it=>it.fields?.Title===`${title}#${i}`);if(!p)return null;s+=p.fields.Data||'';}
       raw=s;
     }
     try{return JSON.parse(raw);}catch{return null;}
@@ -916,19 +747,18 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
   function pickItem(k,id){
     const its=C(k).items.filter(it=>it.fields?.Title===id);
     if(!its.length) return null;
-    if(SELF_LISTS.includes(k)){const own=its.find(it=>okOwn(it,id));if(own)return own;const adm=its.find(okAdm);return adm||null;}
-    if(k==='approvals')return its.find(okAdm)||null;   // 관리자 승인·반려는 관리자가 만들고 고친 것만
+    if(SELF_LISTS.includes(k)){const own=its.find(it=>emailOf(it)===id);if(own)return own;const adm=its.find(it=>ADMINS.includes(emailOf(it)));return adm||null;}
     return its[0];
   }
   function docsOf(k){
     const items=C(k).items, m=new Map();
     if(k==='pro'||k==='comp'){
       const f=k==='pro'?'Pro':'Comp';
-      for(const it of C('leaves').items){const t=it.fields?.Title;if(!t||t.includes('#')||!it.fields?.[f])continue;if(!(okOwn(it,t)||okAdm(it)))continue;const d=readProComp(it,f);if(d!==undefined&&(!m.has(t)||emailOf(it)===t))m.set(t,d);}
+      for(const it of C('leaves').items){const t=it.fields?.Title;if(!t||t.includes('#')||!it.fields?.[f])continue;try{const d=JSON.parse(it.fields[f]);if(!m.has(t)||emailOf(it)===t)m.set(t,d);}catch{}}
       return m;
     }
     const titles=new Set(items.map(it=>it.fields?.Title).filter(t=>t&&!t.includes('#')));
-    for(const t of titles){const it=pickItem(k,t);if(!it)continue;const d=parseData(it.fields?.Data,items,t,SELF_LISTS.includes(k)?it:null);if(d!=null)m.set(t,d);}
+    for(const t of titles){const it=pickItem(k,t);if(!it)continue;const d=parseData(it.fields?.Data,items,t);if(d!=null)m.set(t,d);}
     return m;
   }
   const listKeyOf=col=>(col==='pro'||col==='comp')?'leaves':col;
@@ -944,10 +774,8 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     const k=listKeyOf(col), lid=LIDS[k];
     await fetchList(k);
     const field=col==='pro'?'Pro':col==='comp'?'Comp':'Data';
-    const mineOnly=it=>!SELF_LISTS.includes(k)||emailOf(it)===ME.email;
-    const json=value==null?'':(field!=='Data'&&K.sig?await signVal(id,field,value):JSON.stringify(value));
-    // 직원은 자기가 만든 항목만 고친다(남이 만든 항목을 고치면 그 기록이 무효가 되므로). 관리자는 직원 항목을 고칠 수 있다.
-    let target=SELF_LISTS.includes(k)?(C(k).items.find(it=>it.fields?.Title===id&&emailOf(it)===ME.email)||(field!=='Data'||isAdm(ME.email)?pickItem(k,id):null)):pickItem(k,id);
+    const json=value==null?'':JSON.stringify(value);
+    let target=SELF_LISTS.includes(k)?(C(k).items.find(it=>it.fields?.Title===id&&emailOf(it)===ME.email)||pickItem(k,id)):pickItem(k,id);
     if(field!=='Data'){
       if(target) await gx('PATCH',`/sites/${SITE}/lists/${lid}/items/${target.id}/fields`,{[field]:json});
       else await gx('POST',`/sites/${SITE}/lists/${lid}/items`,{fields:{Title:id,Data:'{"requests":[]}',[field]:json}});
@@ -958,11 +786,11 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     if(target) await gx('PATCH',`/sites/${SITE}/lists/${lid}/items/${target.id}/fields`,{Data:first});
     else await gx('POST',`/sites/${SITE}/lists/${lid}/items`,{fields:{Title:id,Data:first}});
     for(let i=1;i<parts.length;i++){
-      const t=`${id}#${i}`, ex=C(k).items.find(it=>it.fields?.Title===t&&mineOnly(it));
+      const t=`${id}#${i}`, ex=C(k).items.find(it=>it.fields?.Title===t);
       if(ex) await gx('PATCH',`/sites/${SITE}/lists/${lid}/items/${ex.id}/fields`,{Data:parts[i]});
       else await gx('POST',`/sites/${SITE}/lists/${lid}/items`,{fields:{Title:t,Data:parts[i]}});
     }
-    for(const it of C(k).items){const m=(it.fields?.Title||'').match(/^(.*)#(\d+)$/);if(m&&m[1]===id&&Number(m[2])>=parts.length&&mineOnly(it))await gx('DELETE',`/sites/${SITE}/lists/${lid}/items/${it.id}`);}
+    for(const it of C(k).items){const m=(it.fields?.Title||'').match(/^(.*)#(\d+)$/);if(m&&m[1]===id&&Number(m[2])>=parts.length)await gx('DELETE',`/sites/${SITE}/lists/${lid}/items/${it.id}`);}
     return notify(k);
   }
   async function deleteDoc(col,id){
@@ -1023,20 +851,24 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
   const assets={
     async upload(file,opts={}){
       if(file.size>20*1024*1024){const e=new Error('too large');e.code='too_large';throw e;}
-      if(!K.enc){const e=new Error('keys');e.code='graph';throw e;}
-      const name=`${Date.now().toString(36)}_${Math.random().toString(36).slice(2,10)}.bin`;   // 원래 파일 이름은 잠긴 정보 안에만 남긴다
-      const L=await lockBytes(await file.arrayBuffer());
-      const item=await uploadBlob(`LeaveFiles/${name}`,L.blob);
-      try{const {keys,kn}=await wrapFor(L.aes,recipientsFor(ME.email));
-        if(!keys[ME.email])throw Object.assign(new Error('keys'),{code:'graph'});   // 나도 못 여는 파일은 올리지 않는다
-        await putDrive(keyPath(item.id),JSON.stringify({v:1,iv:L.iv,owner:ME.email,type:opts.type||file.type||'',keys,kn}));}
-      catch(e){try{await gx('DELETE',`/sites/${SITE}/drive/items/${item.id}`);}catch{}throw e;}
-      return {id:item.id,url:'',contentType:opts.type||file.type||'',sizeBytes:file.size};
+      const safe=(file.name||'file').replace(/[\\/:*?"<>|#%]/g,'_');
+      const path=`LeaveFiles/${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}_${safe}`;
+      let item;
+      if(file.size<=4*1024*1024){
+        item=await gx('PUT',`/sites/${SITE}/drive/root:/${encodeURI(path)}:/content`,file,{headers:{'Content-Type':opts.type||file.type||'application/octet-stream'}});
+      }else{
+        const sess=await gx('POST',`/sites/${SITE}/drive/root:/${encodeURI(path)}:/createUploadSession`,{item:{'@microsoft.graph.conflictBehavior':'rename'}});
+        const CH=5*1024*1024; let res;
+        for(let s=0;s<file.size;s+=CH){
+          const e=Math.min(file.size,s+CH);
+          res=await fetch(sess.uploadUrl,{method:'PUT',headers:{'Content-Range':`bytes ${s}-${e-1}/${file.size}`},body:file.slice(s,e)});
+          if(!res.ok&&res.status!==202){const er=new Error('upload');er.code='graph';throw er;}
+        }
+        item=await res.json();
+      }
+      return {id:item.id,url:'',contentType:opts.type||file.type||item.file?.mimeType||'',sizeBytes:item.size};
     },
-    async delete(id){
-      try{await gx('DELETE',`/sites/${SITE}/drive/items/${id}`);}catch(e){if(e.status!==404)throw e;}
-      try{const k=await gx('GET',`${keyPath(id)}?$select=id`);await gx('DELETE',`/sites/${SITE}/drive/items/${k.id}`);}catch(e){}
-    }
+    async delete(id){try{await gx('DELETE',`/sites/${SITE}/drive/items/${id}`);}catch(e){if(e.status!==404)throw e;}}
   };
   async function hrLite(){const out=[];let url=`/sites/${SITE}/lists/${LIDS.hr}/items?$expand=fields($select=Title)&$select=id,createdDateTime,createdBy&$top=999`;while(url){const j=await gx('GET',url);out.push(...j.value);url=j['@odata.nextLink']||null;}return out;}
   window.__backup={
@@ -1055,14 +887,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     }
   };
   window.__fileUrl=async id=>{const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,name,webUrl`);return it.webUrl;};
-  window.__blob=async id=>{
-    const f=await readDrive(`/sites/${SITE}/drive/items/${id}`);if(!f)throw new Error('download');
-    if(!isLocked(f.buf))return new Blob([f.buf]);   // 잠그기 전 파일
-    const meta=await readMeta(id);const aes=meta&&await aesOf(meta).catch(()=>null);
-    if(!aes){try{notice('이 첨부파일을 열 수 있는 열람 키가 아직 없어요. 신청자나 관리자가 휴가 관리를 한 번 열면 자동으로 열 수 있게 돼요.');}catch{}throw new Error('locked');}
-    const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(meta.iv)},aes,f.buf.slice(MAGIC.length));
-    return new Blob([pt],{type:meta.type||''});
-  };
+  window.__blob=async id=>{const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,@microsoft.graph.downloadUrl`);const r=await fetch(it['@microsoft.graph.downloadUrl']);if(!r.ok)throw new Error('download');return r.blob();};
 
   /* ---------- 내려받기·메일 ---------- */
   const downloads={async save({filename,data}){const url=URL.createObjectURL(data instanceof Blob?data:new Blob([data]));const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}};
@@ -1086,7 +911,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
         LIDS[k]=l.id;
       }
       await fetchList('config');
-      if(!docsOf('config').get('main')&&!C('config').items.some(it=>(it.fields?.Title||'')==='main')){ADMINS=[ME.email];await writeDoc('config','main',{admins:[ME.email]});}
+      if(!docsOf('config').get('main')){ADMINS=[ME.email];await writeDoc('config','main',{admins:[ME.email]});}
       gate('목록을 만들었어요',`<p>마지막으로 SharePoint에서 목록 권한을 정하면 끝나요. 설치 안내서의 <b>"목록 권한 설정"</b> 단계를 따라 해 주세요.</p>
         <p>그다음 프로그램의 <b>관리 › 공휴일·설정 › 이관 파일 가져오기</b>로 기존 데이터를 불러오면 돼요.</p>`,[['프로그램 열기',()=>{hideGate();readyRes();}]]);
     }catch(e){
@@ -1116,7 +941,6 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       gate('SharePoint에 연결하지 못했어요',`<p class="err">${e.status===403||e.status===404?'휴가 관리 사이트에 접근 권한이 없어요. 관리자에게 사이트 구성원으로 추가해 달라고 요청해 주세요.':esc(e.message)}</p>`,[['다시 시도',()=>location.reload()],['다른 계정으로 로그인',()=>MS.logoutRedirect(),true]]);
       return;
     }
-    let keyErr=null;try{await initKeys();}catch(e){console.error(e);keyErr=e;K.enc=null;K.sig=null;}   // 키가 없어도 휴가 관리는 열고, 첨부 잠금 기능만 쉰다
     // Leave_HR은 관리자만 볼 수 있어서 직원에게는 안 보이는 게 정상이에요.
     const missing=Object.keys(LISTS).filter(k=>k!=='hr'&&!LIDS[k]);
     if(missing.length&&!missing.includes('config')){
@@ -1128,18 +952,11 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       return;
     }
     try{await fetchList('config');}catch(e){console.error(e);}
-    if(!docsOf('config').get('main')&&C('config').items.some(it=>(it.fields?.Title||'')==='main')){
-      gate('설정 정보를 읽지 못했어요','<p class="err">SharePoint의 Leave_Config 목록에 설정이 있지만 읽지 못했어요. 데이터를 지키기 위해 여기서 멈췄어요. 관리자에게 알려 주세요.</p>',[['다시 시도',()=>location.reload()]]);
-      return;
-    }
     if(!docsOf('config').get('main')){
       gate('처음 설정',`<p>설정 정보가 아직 없어요. 지금 계정(${esc(ME.email)})을 관리자로 지정하고 시작할게요. 사이트 소유자 계정으로 진행해 주세요.</p><p class="msgline"></p>`,[['시작하기',b=>createLists(b)]]);
       return;
     }
     hideGate(); readyRes();
-    if(keyErr)setTimeout(()=>{try{notice(`첨부파일 잠금용 보안 키를 준비하지 못했어요. 휴가 신청·결재는 그대로 쓸 수 있지만 첨부파일 올리기와 잠긴 첨부 보기는 안 돼요. (확인용: ${keyErr.step||'키 준비'} 단계 · ${keyErr.status||''} ${String(keyErr.message||'').slice(0,120)})`);}catch{}},1500);
-    const housekeeping=async()=>{try{await fetchList('leaves');await resignProComp();}catch(e){console.warn(e);}try{await syncFiles();}catch(e){console.warn(e);}};
-    setTimeout(housekeeping,4000);setInterval(()=>{if(document.visibilityState==='visible')housekeeping();},5*60*1000);
   })();
 })();
 
@@ -1193,7 +1010,7 @@ const S={db:null,user:null,me:null,isAdmin:false,readOnly:false,
   unit:'day',ensured:false,leavesReady:false,ev:new Map(),armed:null,rejecting:null};
 const C=()=>({...DEF,...S.rawConfig,people:S.rawConfig.people||{},extra:S.rawConfig.extra||{},off:S.rawConfig.off||[],chain:S.rawConfig.chain||DEF.chain});
 const HPD=()=>Number(C().hpd)||8;
-const P=u=>({...(String(u).startsWith('n:')?(C().roster||{})[u]:null),...(C().people[u]||{})});
+const P=u=>({...(String(u).startsWith('n:')?(C().roster||{})[u]:(S.rByUid||{})[u]),...(C().people[u]||{})});
 function histOf(u){const out=[];for(const [k,x] of Object.entries(C().roster||{}))if(x.uid?x.uid===u:k===u)for(const r of (x.hist||[]))out.push(r);return out;}
 const reqsOf=u=>[...(S.leaves[u]?.requests||[]),...histOf(u)];
 
@@ -1454,6 +1271,13 @@ function syncCal(){  // 관리자 화면에서 캘린더 사본이 원본과 다
       const want={requests:(d.requests||[]).map(pubReq)}, have=(S.cal||{})[u];
       if(JSON.stringify(want)!==JSON.stringify(have||{requests:[]})){try{await S.db.doc('cal/'+u).set(want);}catch(e){console.warn('cal sync',u,e);}}
     }
+    // 직원 본인 화면에 필요한 입사일·조정값(pro) 맞추기: 관리자 화면 값과 다르면 직원 항목에 다시 써 줌
+    if(S.hrOK) for(const u of new Set([...Object.keys(S.rByUid||{}),...Object.keys(C().people||{})])){
+      if(String(u).startsWith('n:')||!(S.priv||{})[u]) continue;
+      const p=P(u), want={}; for(const f of SENS) if(p[f]!=null&&p[f]!==''&&!(typeof p[f]==='object'&&!Object.keys(p[f]).length)) want[f]=p[f];
+      const have={...((S.pro||{})[u]||{})}; for(const f of Object.keys(have)) if(typeof have[f]==='object'&&!Object.keys(have[f]).length) delete have[f];
+      if(Object.keys(want).length&&JSON.stringify(want)!==JSON.stringify(have)){try{await S.db.doc('pro/'+u).set(want);}catch(e){console.warn('pro sync',u,e);}}
+    }
   },3000);
 }
 function writeLeaves(u,m){
@@ -1492,6 +1316,7 @@ function compose(){
   for(const [u,x] of Object.entries(pub.people)) Object.assign(x,(hr.people||{})[u]||{},S.isAdmin?{}:(S.pro[u]||{}));
   if(S.me&&S.pro[S.me]&&!S.isAdmin){pub.people[S.me]={...(pub.people[S.me]||{}),...S.pro[S.me]};}
   S.rawConfig=pub;
+  S.rByUid={}; for(const x of Object.values(pub.roster||{})) if(x.uid) S.rByUid[x.uid]=x;
   const L={}; for(const [u,d] of Object.entries(S.cal||{})) L[u]=d; for(const [u,d] of Object.entries(S.priv||{})) L[u]=d;
   S.leaves=L;
 }
@@ -1506,7 +1331,7 @@ function writeErr(e,el){
 
 /* ---------- 신청 폼 ---------- */
 function openFile(f){
-  if(window.__fileUrl&&!window.__blob){  // M365: SharePoint 보기 화면으로 열기 (보기·내려받기 모두 그 화면에서)
+  if(window.__fileUrl){  // M365: SharePoint 보기 화면으로 열기 (보기·내려받기 모두 그 화면에서)
     const w=window.open('about:blank','_blank');
     window.__fileUrl(f.id).then(u=>{if(w&&!w.closed)w.location.href=u;else location.href=u;})
       .catch(e=>{console.error(e);if(w&&!w.closed)w.close();notice(`파일을 열지 못했어요${e?.status===404?' (파일이 삭제됐어요)':e?.status===403?' (이 파일을 볼 권한이 없어요)':''}.`);});
@@ -1526,8 +1351,6 @@ function openFile(f){
   if((f.type||'').startsWith('image/')){
     const show=src=>{const img=h('img',{src,alt:f.name,style:'max-width:100%;max-height:75vh;display:block;margin:0 auto;border-radius:6px'});img.onerror=fail;body.replaceChildren(img);};
     if(window.__blob) getBlob2().then(b=>{url=URL.createObjectURL(b);show(url);}).catch(fail); else show('/_blob/'+f.id);
-  }else if(window.__blob&&!/pdf/i.test(f.type||'')&&!/\.pdf$/i.test(f.name||'')){
-    body.replaceChildren(h('p',{class:'muted'},'이 형식은 화면에서 바로 볼 수 없어요. 위의 [내려받기]를 눌러 열어 주세요.'));
   }else{
     getBlob2().then(b=>{url=URL.createObjectURL(new Blob([b],{type:'application/pdf'}));body.replaceChildren(h('iframe',{src:url,title:f.name,style:'width:100%;height:75vh;border:0;background:#fff;border-radius:6px'}),h('p',{class:'muted small'},'미리보기가 보이지 않으면 내려받기를 눌러 확인해 주세요.'));}).catch(fail);
   }
@@ -1816,7 +1639,7 @@ async function readRosterFile(file){
   try{
     const buf=await file.arrayBuffer(); let rows;
     if(/\.xlsx?$/i.test(file.name)){
-      if(!window.XLSX) await new Promise((ok,no)=>{const s=document.createElement('script');s.src='lib/xlsx.full.min.js';s.onload=ok;s.onerror=no;document.head.append(s);});
+      if(!window.XLSX) await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=ok;s.onerror=no;document.head.append(s);});
       const wb=XLSX.read(buf,{type:'array',cellDates:true});
       rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:false,dateNF:'yyyy-mm-dd',defval:''}).map(r=>r.map(c=>String(c).trim())).filter(r=>r.some(Boolean));
     }else{
@@ -1855,7 +1678,7 @@ function renderMine(){
   if(!S.me){$('remainNum').textContent='–';return;}
   const p=P(S.me), b=pool(S.me,fy,'annual'), hpd=HPD();
   const big=$('remainNum'); big.replaceChildren();
-  if(!p.hire){big.append('–');$('remainCap').textContent='입사일이 아직 등록되지 않았어요. 관리자가 입사일을 넣으면 연차가 계산돼요.';}
+  if(!p.hire){big.append('–');$('remainCap').textContent=S.isAdmin?'입사일이 등록되지 않았어요. 관리 › 직원 정보에서 입사일을 넣어 주세요.':'입사일 정보가 아직 반영되지 않았어요. 관리자가 프로그램을 한 번 열면 자동으로 반영돼요.';}
   else{
     if(b.remain<0) big.append(fmtH(b.remain));
     else big.append(String(toDays(b.remain)),h('small',{},'일'));
@@ -1970,9 +1793,8 @@ function renderCal(){
   const y=S.calY,m=S.calM; $('calTitle').textContent=`${y}년 ${m+1}월`;
   S.calMode=S.calMode||'staff';
   document.querySelectorAll('#calMode button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.m===S.calMode)));
-  $('staffWrap').classList.toggle('hidden',S.calMode!=='staff'); $('monthWrap').classList.toggle('hidden',S.calMode!=='month'); $('weekWrap').classList.toggle('hidden',S.calMode!=='week');
+  $('staffWrap').classList.toggle('hidden',S.calMode!=='staff'); $('monthWrap').classList.toggle('hidden',S.calMode!=='month');
   if(S.calMode==='month') return renderMonth();
-  if(S.calMode==='week') return renderWeek();
   const n=new Date(y,m+1,0).getDate(), ms=ymd(new Date(y,m,1)), me=ymd(new Date(y,m,n));
   const days=[...Array(n)].map((_,i)=>addDays(ms,i));
   if(!S.selDay||S.selDay<ms||S.selDay>me) S.selDay=(TODAY>=ms&&TODAY<=me)?TODAY:(days.find(d=>!isOff(d))||ms);
@@ -2160,7 +1982,7 @@ function renderReport(){
 async function reportXlsx(){
   const R=S.report; if(!R) return; const btn=$('rpXlsx'); btn.disabled=true;
   try{
-    if(!window.ExcelJS) await new Promise((ok,no)=>{const s=document.createElement('script');s.src='lib/exceljs.min.js';s.onload=ok;s.onerror=no;document.head.append(s);});
+    if(!window.ExcelJS) await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';s.onload=ok;s.onerror=no;document.head.append(s);});
     const wb=new ExcelJS.Workbook(), ws=wb.addWorksheet(R.sheet,{pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:1,horizontalCentered:true,margins:{left:0.2,right:0.2,top:0.3,bottom:0.3,header:0.1,footer:0.1}}});
     const n=R.head.length, font={name:'맑은 고딕',size:9}, thin={style:'thin',color:{argb:'FF999999'}}, border={top:thin,left:thin,bottom:thin,right:thin};
     ws.columns=R.w.map(x=>({width:Math.max(4,x*0.55)}));
@@ -2369,65 +2191,6 @@ $('addLine').addEventListener('click',()=>writeConfig(c=>{c.lines=c.lines||[];c.
 document.addEventListener('click',e=>{const b=e.target.closest('#calMode button');if(b){S.calMode=b.dataset.m;render();}});
 
 /* ---------- 화면: 캘린더 ---------- */
-function weekStartOf(s){return addDays(s,-((parse(s).getDay()+6)%7));}
-function curWeek(){
-  const y=S.calY,m=S.calM, ms=ymd(new Date(y,m,1)), me=ymd(new Date(y,m+1,0));
-  let w=S.calWeek; if(!w||addDays(w,6)<ms||w>me) w=weekStartOf(TODAY>=ms&&TODAY<=me?TODAY:ms);
-  return S.calWeek=w;
-}
-function weekShift(n){S.calWeek=addDays(curWeek(),n);const t=parse(addDays(S.calWeek,3));S.calY=t.getFullYear();S.calM=t.getMonth();render();}
-function renderWeek(){
-  const w0=curWeek(), days=[...Array(7)].map((_,i)=>addDays(w0,i)), we=days[6];
-  $('calTitle').textContent=`${w0.slice(0,4)}년 ${fmtD(w0)} ~ ${fmtD(we)}`;
-  const byU={}; for(const r of allRequests()){if(ev(r).status==='rejected'||TYPES[r.type]?.grant||r.start>we||(r.end||r.start)<w0)continue;(byU[r.uid]=byU[r.uid]||[]).push(r);}
-  const on=(x,s)=>x.u?(byU[x.u]||[]).map(r=>({r,h:hoursOn(r,s)})).filter(o=>o.h>0):[];
-  const allRows=staffRows().filter(x=>!(x.end&&x.end<w0)&&!(x.hire&&x.hire>we));
-  const only=S.wkOnly!==false, rows=only?allRows.filter(x=>days.some(s=>on(x,s).length)):allRows;
-  const groups=new Map(); for(const x of rows){const t=x.team||'소속 미정';if(!groups.has(t))groups.set(t,[]);groups.get(t).push(x);}
-  for(const t of groups.keys()) groups.get(t).sort((a,b)=>cmpPeople(a.u,b.u));
-  const top=t=>Math.max(...groups.get(t).map(x=>rank(x.pos)));
-  const order=[...groups.keys()].sort((a,b)=>(a==='소속 미정')-(b==='소속 미정')||top(b)-top(a)||a.localeCompare(b,'ko'));
-  const canSee=r=>S.isAdmin||r.uid===S.me;
-  const item=z=>{const r=z.r,pend=ev(r).status==='pending',multi=r.unit==='day'&&r.start!==(r.end||r.start);
-    const det=canSee(r)?((r.detail&&(r.detail.kind||r.detail.text))?[r.detail.kind,r.detail.text].filter(Boolean).join(' · '):(r.reason||'')):'';
-    return h('div',{class:'it'+(pend?' pend':''),style:`--t:${TCOLOR[r.type]||'var(--muted)'}`},
-      h('b',{},TYPES[r.type]?.label||''),pend?h('span',{class:'muted small'},' · 결재 중'):null,
-      h('div',{},unitText(r)+(multi?` · ${fmtD(r.start)}~${fmtD(r.end)}`:'')),
-      det?h('div',{},det):null,
-      (canSee(r)&&r.files&&r.files.length)?h('div',{class:'files'},r.files.map(f=>h('button',{type:'button',class:'file',title:f.name+' 열기',onclick:()=>openFile(f)},(f.type==='application/pdf'?'📄 ':'🖼 ')+f.name))):null);};
-  const bar=$('wkBar'); bar.replaceChildren(
-    h('div',{class:'row',style:'gap:8px'},h('button',{class:'btn ghost sm',type:'button',onclick:()=>{S.calWeek=weekStartOf(TODAY);const t=parse(TODAY);S.calY=t.getFullYear();S.calM=t.getMonth();render();}},'이번 주'),
-      h('span',{class:'muted small'},`휴가·출장 ${allRows.filter(x=>days.some(s=>on(x,s).length)).length}명 / 전체 ${allRows.length}명`)),
-    h('label',{class:'small',style:'display:flex;gap:6px;align-items:center;white-space:nowrap;flex:0 0 auto'},h('input',{type:'checkbox',checked:only,onchange:e=>{S.wkOnly=e.target.checked;render();}}),'일정 있는 사람만 보기'));
-  const tbl=$('wk'); tbl.replaceChildren();
-  const hr=h('tr',{},h('th',{class:'nm'},only?`일정 있는 ${rows.length}명`:`전체 ${rows.length}명`));
-  for(const s of days){const d=parse(s),hn=holidayName(s),w=d.getDay();hr.append(h('th',{class:[hn?'hol':w===0?'sun':w===6?'sat':'',s===TODAY?'today':''].join(' ')},h('b',{},`${d.getMonth()+1}.${d.getDate()}`),DOW[w]+(s===TODAY?' · 오늘':''),hn?h('small',{},hn):null));}
-  tbl.append(h('thead',{},hr));
-  const tb=h('tbody');
-  if(!rows.length) tb.append(h('tr',{},h('td',{colspan:'8',class:'muted',style:'text-align:center;padding:18px'},'이번 주 휴가·출장자가 없어요.')));
-  for(const t of order){
-    tb.append(h('tr',{class:'grp'},h('td',{class:'nm'},`${t} · ${groups.get(t).length}명`),h('td',{colspan:'7'})));
-    for(const x of groups.get(t)){
-      const tr=h('tr',{},h('td',{class:'nm'},x.name,h('small',{},x.pos)));
-      for(const s of days){
-        if(!activeOn(x,s)){tr.append(h('td',{class:'na',title:'재직 기간 아님'}));continue;}
-        const o=on(x,s); tr.append(h('td',{class:isOff(s)?'offd':''},o.map(item)));
-      }
-      tb.append(tr);
-    }
-  }
-  tbl.append(tb);
-  const ft=h('tfoot');
-  const stats=s=>{let act=0,lv=0,trp=0,abs=0;for(const x of allRows){if(!activeOn(x,s))continue;act++;let a=0,b=0;for(const z of on(x,s)){if(z.r.type==='trip')b+=z.h;else a+=z.h;}if(a)lv++;if(b)trp++;if(a+b>=HPD())abs++;}return {lv,tr:trp,work:act-abs};};
-  for(const [label,key] of [['휴가','lv'],['출장','tr'],['근무','work']]){
-    const tr=h('tr',{},h('td',{class:'nm'},label));
-    for(const s of days){const v=stats(s)[key];tr.append(h('td',{},isOff(s)?'':(key!=='work'&&!v?'':String(v))));}
-    ft.append(tr);
-  }
-  tbl.append(ft);
-  $('wkLegend').replaceChildren(...Object.entries(TCODE).map(([k])=>h('span',{},h('span',{class:'tag',style:`--t:${TCOLOR[k]};padding:0 6px;margin-right:4px`},TYPES[k].label))),
-    h('span',{},'점선: 결재 중'),h('span',{},S.isAdmin?'관리자는 사유·첨부까지 보여요':'사유·첨부는 본인 것만 보여요'));
-}
 function renderMonth(){
   const y=S.calY,m=S.calM; $('calTitle').textContent=`${y}년 ${m+1}월`;
   const first=new Date(y,m,1), off=first.getDay(), start=ymd(new Date(y,m,1-off));
@@ -2506,11 +2269,7 @@ function renderAdmin(){
     fillAdmForm();
     $('allTitle').textContent=`${fyLabel(S.fy)} 전체 신청 내역`;
     const at=$('allRows'); at.replaceChildren();
-    fillAllFilter(); const LIST=allFiltered(), tnOf=u=>P(u).team||'(소속 미정)'; let lastT=null;
-    $('afCount').textContent=`${LIST.length}건`;
-    if(!LIST.length) at.append(h('tr',{},h('td',{colspan:'7',class:'muted'},'조건에 맞는 신청이 없어요.')));
-    for(const r of LIST){
-      if(afState().sort==='team'){const t=tnOf(r.uid);if(t!==lastT){lastT=t;at.append(h('tr',{},h('td',{colspan:'7',style:'background:var(--cell);font-weight:600;padding:6px 10px'},`${t} · ${LIST.filter(x=>tnOf(x.uid)===t).length}건`)));}}
+    for(const r of allRequests().filter(r=>fyOf(r.start)===S.fy)){
       const e=ev(r);
       const acts=h('div',{class:'row',style:'justify-content:flex-end;flex-wrap:nowrap'});
       if(e.override) acts.append(h('button',{class:'btn ghost sm',onclick:()=>adminSet(r,null)},'되돌리기'));
@@ -2611,33 +2370,9 @@ async function saveCsv(name,rows){
   try{await dl.save({filename:name,data:new Blob(['\ufeff'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv'})});}
   catch(e){if(e?.code!=='declined')notice('파일을 저장하지 못했어요.');}
 }
-function afState(){if(!S.af){let s='team';try{s=localStorage.getItem('khf_afSort')||'team';}catch{}S.af={team:'',who:'',st:'',sort:s};}return S.af;}
-function allFiltered(){
-  const F=afState(), tn=u=>P(u).team||'(소속 미정)';
-  let L=allRequests().filter(r=>fyOf(r.start)===S.fy);
-  if(F.team) L=L.filter(r=>tn(r.uid)===F.team);
-  if(F.who) L=L.filter(r=>r.uid===F.who);
-  if(F.st) L=L.filter(r=>ev(r).status===F.st);
-  if(F.sort==='team') L.sort((a,b)=>a.uid===b.uid?b.start.localeCompare(a.start):(cmpPeople(a.uid,b.uid)||String(a.uid).localeCompare(String(b.uid))));
-  else if(F.sort==='created') L.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  return L;
-}
-function fillAllFilter(){
-  const F=afState(), tn=u=>P(u).team||'(소속 미정)';
-  const uids=[...new Set(allRequests().filter(r=>fyOf(r.start)===S.fy).map(r=>r.uid))].sort(cmpPeople);
-  const teams=[...new Set(uids.map(tn))];
-  if(F.team&&!teams.includes(F.team)) F.team='';
-  const who=uids.filter(u=>!F.team||tn(u)===F.team);
-  if(F.who&&!who.includes(F.who)) F.who='';
-  const opt=(v,l,cur)=>h('option',{value:v,selected:v===cur},l);
-  $('afTeam').replaceChildren(opt('','전체',F.team),...teams.map(t=>opt(t,t,F.team)));
-  $('afWho').replaceChildren(opt('','전체',F.who),...who.map(u=>opt(u,nameOf(u),F.who)));
-  $('afSt').replaceChildren(opt('','전체',F.st),...Object.entries(STATUS).map(([k,v])=>opt(k,v,F.st)));
-  $('afSort').value=F.sort;
-}
 function csvAll(){
   const rows=[['직원','직위','국','팀','종류','단위','시작일','종료일','시작 시각','사용 일수','사유','결재선','상태']];
-  for(const r of allFiltered()){const p=P(r.uid),e=ev(r);rows.push([nameOf(r.uid),posAt(r.uid,TODAY),p.bureau||'',p.team||'',TYPES[r.type]?.label,UNITS[r.unit],r.start,r.end,r.time||'',toDays(r.hours),r.reason||'',(r.steps||[]).join('>'),e.override?'관리자 '+STATUS[e.status]:STATUS[e.status]]);}
+  for(const r of allRequests().filter(r=>fyOf(r.start)===S.fy)){const p=P(r.uid),e=ev(r);rows.push([nameOf(r.uid),posAt(r.uid,TODAY),p.bureau||'',p.team||'',TYPES[r.type]?.label,UNITS[r.unit],r.start,r.end,r.time||'',toDays(r.hours),r.reason||'',(r.steps||[]).join('>'),e.override?'관리자 '+STATUS[e.status]:STATUS[e.status]]);}
   saveCsv(`휴가신청_${S.fy}.csv`,rows);
 }
 function csvBal(){
@@ -2661,8 +2396,8 @@ function setupUI(){
   $('reqForm').addEventListener('submit',submitReq);
   $('fySel').addEventListener('change',e=>{S.fy=Number(e.target.value);render();});
   document.querySelectorAll('#tabs button').forEach(b=>b.addEventListener('click',()=>{S.tab=b.dataset.tab;S.armed=null;render();}));
-  $('prevM').onclick=()=>{if(S.tab==='cal'&&S.calMode==='week')return weekShift(-7);if(--S.calM<0){S.calM=11;S.calY--;}render();};
-  $('nextM').onclick=()=>{if(S.tab==='cal'&&S.calMode==='week')return weekShift(7);if(++S.calM>11){S.calM=0;S.calY++;}render();};
+  $('prevM').onclick=()=>{if(--S.calM<0){S.calM=11;S.calY--;}render();};
+  $('nextM').onclick=()=>{if(++S.calM>11){S.calM=0;S.calY++;}render();};
   const as=$('adminSeg');
   for(const [k,v] of [['staff','직원·연차'],['requests','신청 내역'],['report','월별 보고'],['comp','대체휴가'],['lines','결재라인'],['settings','공휴일·설정'],['exit','퇴사 정산']]) as.append(h('button',{type:'button','data-sub':k,onclick:()=>{S.sub=k;render();}},v));
   for(let m=1;m<=12;m++) $('sFsm').append(h('option',{value:m},m+'월'));
@@ -2684,8 +2419,7 @@ function setupUI(){
   $('rosterText').addEventListener('input',e=>previewRoster(textRows(e.target.value)));
   $('rosterSave').onclick=saveRoster; $('tplBtn').onclick=rosterTemplate;
   $('rosterFile').addEventListener('change',e=>{const f=e.target.files[0];if(f)readRosterFile(f);e.target.value='';});
-  $('csvAll').onclick=csvAll;
-  for(const [id,k] of [['afTeam','team'],['afWho','who'],['afSt','st'],['afSort','sort']]) $(id).addEventListener('change',e=>{const F=afState();F[k]=e.target.value;if(k==='team')F.who='';if(k==='sort'){try{localStorage.setItem('khf_afSort',F.sort);}catch{}}e.target.blur();render();}); $('csvBal').onclick=csvBal;
+  $('csvAll').onclick=csvAll; $('csvBal').onclick=csvBal;
 }
 async function ensureMine(){
   if(S.ensured||!S.leavesReady||!S.me||S.readOnly) return; S.ensured=true;
