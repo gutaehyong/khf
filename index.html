@@ -225,6 +225,7 @@ button.file{font:inherit;font-size:12.5px;cursor:pointer}
 .wk .card b{display:block;font-size:12.5px}
 .wk .card.pend{background:transparent;border:1px dashed var(--t);border-left:3px solid var(--t)}
 .wk .card .muted{display:block}
+.wk .card .wy{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wk tfoot td{background:var(--bg);font-weight:600;text-align:center;font-variant-numeric:tabular-nums;vertical-align:middle}
 .wk tfoot td.nm{background:var(--bg);text-align:left}
 .linecard{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px}
@@ -1857,10 +1858,10 @@ function renderWeek(){
         const td=h('td',{class:isOff(s)?'offd':''});
         for(const r of on(x,s)){
           const pend=ev(r).status==='pending';
-          const unit=r.unit==='day'?'종일':r.unit==='hour'?`${r.time}부터 ${r.hours}시간`:UNITS[r.unit];
+          const unit=r.unit==='am'?'오전':r.unit==='pm'?'오후':r.unit==='hour'?`${r.time} ${r.hours}시간`:'';
           const why=canSeeReason(r)?(r.detail?[r.detail.kind,r.detail.text].filter(Boolean).join(' · '):r.reason):'';
-          td.append(h('div',{class:'card'+(pend?' pend':''),style:`--t:${TCOLOR[r.type]||'var(--accent)'}`,title:pend?'결재 중':''},
-            h('b',{},TYPES[r.type]?.label||''),h('span',{class:'muted'},unit+(pend?' · 결재 중':'')),why?h('span',{class:'muted'},why):null));
+          td.append(h('div',{class:'card'+(pend?' pend':''),style:`--t:${TCOLOR[r.type]||'var(--accent)'}`,title:(pend?'결재 중 · ':'')+(TYPES[r.type]?.label||'')+(unit?' '+unit:'')+(why?' · '+why:'')},
+            h('b',{},(TYPES[r.type]?.label||'')+(unit?' '+unit:''),pend?h('span',{class:'muted',style:'display:inline;font-weight:400'},' · 결재 중'):null),why?h('span',{class:'muted wy'},why):null));
         }
         tr.append(td);
       }
