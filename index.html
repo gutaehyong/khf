@@ -590,7 +590,7 @@ window.APP_CONFIG={
   tenantId:'d95f94b4-77a6-4925-92fb-59d55d740283',
   siteHost:'kohem.sharepoint.com',
   sitePath:'/sites/khf',
-  sitesScope:'Sites.ReadWrite.All',   // 나중에 Sites.Selected 설정을 마치면 'Sites.Selected' 로 바꿔요
+  sitesScope:'Sites.ReadWrite.All',   // Sites.Selected 설정 전이면 'Sites.ReadWrite.All' 로 바꿔 두세요
   redirectUri:''   // 비워 두면 현재 주소를 써요
 };
 </script>
@@ -741,8 +741,14 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
   const KEYF='leave-keys.json', MAGIC=new TextEncoder().encode('KHFENC1\n');
   const K={enc:null,sig:null,encPub:null,sigPub:null,pub:{},ver:new Map()};
   async function readDrive(path){   // path: Graph 경로(…:/content 없이). 없으면 null
-    let it;try{it=await gx('GET',`${path}?$select=id,createdBy,lastModifiedBy,@microsoft.graph.downloadUrl`);}catch(e){if(e.status===404)return null;throw e;}
-    const r=await fetch(it['@microsoft.graph.downloadUrl']);if(!r.ok)throw new Error('download');return {it,buf:await r.arrayBuffer()};
+    let it;try{it=await gx('GET',path);}catch(e){if(e.status===404)return null;throw e;}
+    // 1) 내려받기 주소로 받기  2) 안 되면 Graph content 주소로 받기 (회사 OneDrive는 1번 주소가 빠지는 경우가 있음)
+    let url=it['@microsoft.graph.downloadUrl'],st='';
+    if(url){try{const r=await fetch(url);if(r.ok)return {it,buf:await r.arrayBuffer()};st='url '+r.status;}catch(e){st='url '+e.message;}}
+    const drv=it.parentReference?.driveId;
+    const cp=drv?`${G}/drives/${drv}/items/${it.id}/content`:`${G}${path.replace(/\?.*$/,'')}:/content`;
+    try{const r=await fetch(cp,{headers:{Authorization:'Bearer '+await token()}});if(r.ok)return {it,buf:await r.arrayBuffer()};st+=' / content '+r.status;}catch(e){st+=' / content '+e.message;}
+    throw Object.assign(new Error('download ('+(url?'':'주소 없음 ')+st+')'),{code:'graph'});
   }
   const putDrive=(path,data,type='application/json')=>gx('PUT',`${path}:/content`,data instanceof Blob?data:new Blob([data],{type}),{headers:{'Content-Type':type}});
   async function initKeys(){
