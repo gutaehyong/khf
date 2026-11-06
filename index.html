@@ -777,8 +777,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     const json=value==null?'':JSON.stringify(value);
     let target=SELF_LISTS.includes(k)?(C(k).items.find(it=>it.fields?.Title===id&&emailOf(it)===ME.email)||pickItem(k,id)):pickItem(k,id);
     if(field!=='Data'){
-      if(target) await gx('PATCH',`/sites/${SITE}/lists/${lid}/items/${target.id}/fields`,{[field]:json});
-      else await gx('POST',`/sites/${SITE}/lists/${lid}/items`,{fields:{Title:id,Data:'{"requests":[]}',[field]:json}});
+      if(target&&emailOf(target)===id) await gx('PATCH',`/sites/${SITE}/lists/${lid}/items/${target.id}/fields`,{[field]:json});
       return notify(k);
     }
     const parts=[]; for(let i=0;i<json.length;i+=CHUNK) parts.push(json.slice(i,i+CHUNK)); if(!parts.length) parts.push('');
@@ -1012,7 +1011,7 @@ const C=()=>({...DEF,...S.rawConfig,people:S.rawConfig.people||{},extra:S.rawCon
 const HPD=()=>Number(C().hpd)||8;
 const P=u=>({...(String(u).startsWith('n:')?(C().roster||{})[u]:(S.rByUid||{})[u]),...(C().people[u]||{})});
 function histOf(u){const out=[];for(const [k,x] of Object.entries(C().roster||{}))if(x.uid?x.uid===u:k===u)for(const r of (x.hist||[]))out.push(r);return out;}
-const reqsOf=u=>[...(S.leaves[u]?.requests||[]),...histOf(u)];
+const reqsOf=u=>[...(S.leaves[u]?.requests||[]).filter(r=>!(S.approvals&&S.approvals[r.id]&&S.approvals[r.id].status==='deleted')),...histOf(u)];
 
 /* ---------- 시간 표기 ---------- */
 function fmtH(h){
@@ -1153,9 +1152,10 @@ function recompute(){
 }
 
 /* ---------- 신청·잔여 ---------- */
+const isDeleted=r=>{const o=S.approvals&&S.approvals[r.id];return !!o&&o.status==='deleted'&&o.sig===sig(r);};
 function allRequests(){
   const out=[];
-  for(const [u,d] of Object.entries(S.leaves)) for(const r of (d.requests||[])) out.push({...r,uid:u});
+  for(const [u,d] of Object.entries(S.leaves)) for(const r of (d.requests||[])) if(!isDeleted(r)) out.push({...r,uid:u});
   for(const [k,x] of Object.entries(C().roster||{})) for(const r of (x.hist||[])) out.push({...r,uid:x.uid||k});
   return out.sort((a,b)=>b.start.localeCompare(a.start));
 }
@@ -1261,22 +1261,23 @@ function writeDoc(path,cur,mutate){
   return serial(path,async()=>{const next=clone(cur());mutate(next);await S.db.doc(path).set(next);});
 }
 /* 개인정보 분리: 사유·입사일 등은 본인과 관리자만 읽을 수 있는 곳에 저장 */
-const SENS=['hire','adj','prior'];
+const SENS=[]; // 입사일·조정값은 직원 본인 잔여 연차 계산에 필요해 공용 설정에 둠
 const pubReq=r=>({...r}); // 사유·공가 증빙은 결재자가 볼 수 있도록 캘린더 사본에도 남김 (화면에는 본인·결재자·관리자에게만 표시)
 let syncT=null;
-function syncCal(){  // 관리자 화면에서 캘린더 사본이 원본과 다르면 맞춰 줌 (예전 신청의 사유 반영)
-  if(!S.isAdmin||!S.db) return; clearTimeout(syncT);
+function syncCal(){
+  if(!S.db) return; clearTimeout(syncT);
   syncT=setTimeout(async()=>{
-    for(const [u,d] of Object.entries(S.priv||{})){
-      const want={requests:(d.requests||[]).map(pubReq)}, have=(S.cal||{})[u];
-      if(JSON.stringify(want)!==JSON.stringify(have||{requests:[]})){try{await S.db.doc('cal/'+u).set(want);}catch(e){console.warn('cal sync',u,e);}}
+    // 1) 본인 신청 원본 → 본인 캘린더 사본 (본인만 자기 원본을 읽을 수 있어서 각자 화면에서 맞춤)
+    const mine=(S.priv||{})[S.me];
+    if(S.me&&mine&&!S.readOnly){
+      const want={requests:(mine.requests||[]).map(pubReq)}, have=(S.cal||{})[S.me];
+      if(!have||JSON.stringify(want)!==JSON.stringify(have)){try{await S.db.doc('cal/'+S.me).set(want);}catch(e){console.warn('cal sync',e);}}  // 캘린더 항목이 있어야 관리자가 이 직원을 찾아 명단과 연결할 수 있어요
     }
-    // 직원 본인 화면에 필요한 입사일·조정값(pro) 맞추기: 관리자 화면 값과 다르면 직원 항목에 다시 써 줌
-    if(S.hrOK) for(const u of new Set([...Object.keys(S.rByUid||{}),...Object.keys(C().people||{})])){
-      if(String(u).startsWith('n:')||!(S.priv||{})[u]) continue;
-      const p=P(u), want={}; for(const f of SENS) if(p[f]!=null&&p[f]!==''&&!(typeof p[f]==='object'&&!Object.keys(p[f]).length)) want[f]=p[f];
-      const have={...((S.pro||{})[u]||{})}; for(const f of Object.keys(have)) if(typeof have[f]==='object'&&!Object.keys(have[f]).length) delete have[f];
-      if(Object.keys(want).length&&JSON.stringify(want)!==JSON.stringify(have)){try{await S.db.doc('pro/'+u).set(want);}catch(e){console.warn('pro sync',u,e);}}
+    // 2) 관리자: 예전에 인사 목록에만 있던 입사일 등을 공용 설정으로 옮김 (한 번)
+    if(S.isAdmin&&S.hrOK&&!S.cfgMoved){
+      S.cfgMoved=true;
+      const {pub}=splitConfig(S.rawConfig);
+      if(JSON.stringify(pub)!==JSON.stringify(S.pubConfig||{})){try{await writeConfig(()=>{});}catch(e){console.warn('cfg move',e);S.cfgMoved=false;}}
     }
   },3000);
 }
@@ -1317,7 +1318,7 @@ function compose(){
   if(S.me&&S.pro[S.me]&&!S.isAdmin){pub.people[S.me]={...(pub.people[S.me]||{}),...S.pro[S.me]};}
   S.rawConfig=pub;
   S.rByUid={}; for(const x of Object.values(pub.roster||{})) if(x.uid) S.rByUid[x.uid]=x;
-  const L={}; for(const [u,d] of Object.entries(S.cal||{})) L[u]=d; for(const [u,d] of Object.entries(S.priv||{})) L[u]=d;
+  const L={}; for(const [u,d] of Object.entries(S.cal||{})) L[u]=d; if(S.me&&(S.priv||{})[S.me]) L[S.me]=S.priv[S.me];
   S.leaves=L;
 }
 function writeErr(e,el){
@@ -1545,7 +1546,8 @@ async function adminSet(r,status){
 }
 async function adminDelete(r){
   if(r.imported) return writeConfig(c=>{for(const x of Object.values(c.roster||{}))if(x.hist)x.hist=x.hist.filter(z=>z.id!==r.id);}).catch(writeErr);
-  try{await writeLeaves(r.uid,d=>{d.requests=d.requests.filter(x=>x.id!==r.id);});await deleteFiles(r);if(S.approvals[r.id])await S.db.doc('approvals/'+r.id).delete();}catch(e){writeErr(e);}
+  if(r.uid===S.me){try{await writeLeaves(r.uid,d=>{d.requests=d.requests.filter(x=>x.id!==r.id);});await deleteFiles(r);if(S.approvals[r.id])await S.db.doc('approvals/'+r.id).delete();}catch(e){writeErr(e);}return;}
+  try{await serial('approvals/'+r.id,async()=>{await S.db.doc('approvals/'+r.id).set({status:'deleted',by:S.me,at:Date.now(),u:r.uid,sig:sig(r)});});}catch(e){writeErr(e);}
 }
 function setField(c,u,field,val){
   c.people=c.people||{}; const p=c.people[u]=c.people[u]||{};
@@ -2093,7 +2095,7 @@ function buildExport(){
     if(u){
       const p=(cfg.people||{})[u]||{};
       for(const f of ['pos','posLog','team','bureau','end','hire','adj','prior']) if(p[f]!=null&&p[f]!=='') x[f]=p[f];
-      for(const r of (S.priv[u]?.requests||[])){
+      for(const r of reqsOf(u).filter(z=>!z.imported)){
         const st=ev({...r,uid:u}).status;
         if(st==='approved'){const c={...r,steps:[],imported:true};delete c.files;delete c.sig;x.hist.push(c);}
         else if(st==='pending') pend.push(`${x.name} ${r.start} ${TYPES[r.type]?.label||''}`);
