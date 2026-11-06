@@ -2267,10 +2267,21 @@ async function importAll(file){
   try{
     const d=JSON.parse(await file.text());
     if(d.format==='khf-leave-partial'&&d.roster){   // 일부 직원만 추가 (다른 직원은 건드리지 않음)
-      const added=[],skipped=[];
-      await writeConfig(c=>{c.roster=c.roster||{};added.length=0;skipped.length=0;
-        for(const [k,x] of Object.entries(d.roster)){if(c.roster[k]||Object.values(c.roster).some(y=>squash(y.name)===squash(x.name))){skipped.push(x.name);continue;}c.roster[k]=clone(x);added.push(x.name);}});
-      m.className='msg good';m.textContent=`추가했어요: ${added.join(', ')||'없음'}${skipped.length?` · 이미 있어서 건너뜀: ${skipped.join(', ')}`:''}. 다른 직원 정보는 바뀌지 않았어요.`;
+      const res=[];
+      await writeConfig(c=>{c.roster=c.roster||{};res.length=0;
+        for(const [k,x] of Object.entries(d.roster)){
+          const ek=c.roster[k]?k:Object.keys(c.roster).find(kk=>squash(c.roster[kk].name)===squash(x.name));
+          if(!ek){c.roster[k]=clone(x);res.push(`${x.name} 새로 추가(${(x.hist||[]).length}건)`);continue;}
+          // 이미 있으면: 그 사람에게 없는 기록만 더하고, 빈 칸만 채움 (다른 직원은 건드리지 않음)
+          const t=c.roster[ek]; t.hist=t.hist||[];
+          const key=r=>[r.type,r.unit,r.start,r.end||r.start,+r.hours,r.time||''].join('|'), have=new Set(t.hist.map(key));
+          let n=0; for(const r of (x.hist||[])) if(!have.has(key(r))){t.hist.push(clone(r));have.add(key(r));n++;}
+          for(const f of ['pos','bureau','team','hire']) if(!t[f]&&x[f]) t[f]=x[f];
+          if(x.prior&&!t.prior) t.prior=clone(x.prior);
+          if(x.retired&&!t.retired){t.retired=true;if(t.uid){c.people=c.people||{};const p=c.people[t.uid]=c.people[t.uid]||{};p.retired=true;}}
+          res.push(`${x.name} 기존 항목에 ${n}건 보충`);
+        }});
+      m.className='msg good';m.textContent=`처리했어요: ${res.join(' · ')}. 다른 직원 정보는 바뀌지 않았어요.`;
       return;
     }
     if(d.format!=='khf-leave-export'||!d.config||!d.config.roster) throw new Error('형식');
