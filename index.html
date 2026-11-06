@@ -918,7 +918,17 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       const base=full.find(it=>it.fields.Title===id); return base?parseData(base.fields.Data,full,id):null;
     }
   };
-  window.__fileUrl=async id=>{const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,name,webUrl`);return it.webUrl;};
+  window.__fileUrl=async(id,meta={})=>{
+    let it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,name,webUrl`);
+    // 예전 버전이 '.bin'처럼 확장자 없이 올린 파일은 원래 확장자로 이름을 고쳐야 SharePoint가 미리 보여 줘요
+    const MIME={'application/pdf':'.pdf','image/jpeg':'.jpg','image/png':'.png','image/gif':'.gif','image/webp':'.webp','image/heic':'.heic','image/bmp':'.bmp','image/tiff':'.tif'};
+    const want=((String(meta.name||'').match(/\.[A-Za-z0-9]{2,5}$/)||[])[0]||MIME[meta.type]||'').toLowerCase();
+    const cur=((it.name.match(/\.[A-Za-z0-9]{2,5}$/)||[])[0]||'').toLowerCase();
+    if(want&&cur!==want&&!(want==='.jpg'&&cur==='.jpeg')){
+      try{it=await gx('PATCH',`/sites/${SITE}/drive/items/${id}`,{name:it.name.replace(/\.[A-Za-z0-9]{2,5}$/,'')+want,'@microsoft.graph.conflictBehavior':'rename'});}catch(e){console.warn('rename',e);}
+    }
+    return it.webUrl;
+  };
   window.__blob=async id=>{const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,@microsoft.graph.downloadUrl`);const r=await fetch(it['@microsoft.graph.downloadUrl']);if(!r.ok)throw new Error('download');return r.blob();};
 
   /* ---------- 내려받기·메일 ---------- */
@@ -1367,7 +1377,7 @@ function writeErr(e,el){
 function openFile(f){
   if(window.__fileUrl){  // M365: SharePoint 보기 화면으로 열기 (보기·내려받기 모두 그 화면에서)
     const w=window.open('about:blank','_blank');
-    window.__fileUrl(f.id).then(u0=>{const u=u0+(u0.includes('?')?'&':'?')+'web=1';if(w&&!w.closed)w.location.href=u;else location.href=u;})  // web=1: 내려받지 않고 SharePoint 보기 화면으로 열기
+    window.__fileUrl(f.id,f).then(u0=>{const u=u0+(u0.includes('?')?'&':'?')+'web=1';if(w&&!w.closed)w.location.href=u;else location.href=u;})  // web=1: 내려받지 않고 SharePoint 보기 화면으로 열기
       .catch(e=>{console.error(e);if(w&&!w.closed)w.close();notice(`파일을 열지 못했어요${e?.status===404?' (파일이 삭제됐어요)':e?.status===403?' (이 파일을 볼 권한이 없어요)':''}.`);});
     return;
   }
