@@ -675,7 +675,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
   const G='https://graph.microsoft.com/v1.0';
   // 사이트 권한: 기본은 khf 사이트 하나만 허용하는 Sites.Selected. 문제가 생기면 APP_CONFIG.sitesScope 를 'Sites.ReadWrite.All' 로 바꾸면 예전처럼 동작해요.
   const SITES_SCOPE=A.sitesScope||'Sites.Selected';
-  const SCOPES=['User.Read','User.ReadBasic.All',SITES_SCOPE,'Mail.Send','Files.ReadWrite.AppFolder'];
+  const SCOPES=['User.Read','User.ReadBasic.All',SITES_SCOPE,'Mail.Send','Files.ReadWrite'];
   const SETUP_SCOPES=SCOPES;   // 목록을 새로 만들 때는 Graph에서 이 앱의 사이트 권한을 잠깐 manage로 올려 주세요
   const LISTS={leaves:'Leave_Requests',cal:'Leave_Calendar',decisions:'Leave_Decisions',approvals:'Leave_Overrides',config:'Leave_Config',hr:'Leave_HR'};
   const SELF_LISTS=['leaves','cal','decisions'];          // 문서 id = 작성자 메일
@@ -733,7 +733,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
 
   /* ---------- 보안: 개인 키 ----------
      직원마다 키 한 쌍(잠금용 RSA, 서명용 ECDSA)을 만든다.
-     개인 키는 본인 OneDrive의 앱 전용 폴더에만, 공개 키는 LeaveFiles/_pub/<메일>.json 에 둔다. */
+     개인 키는 본인 OneDrive의 Apps/KHF-Leave 폴더에만, 공개 키는 LeaveFiles/_pub/<메일>.json 에 둔다. */
   const RSA={name:'RSA-OAEP',hash:'SHA-256'}, ECD={name:'ECDSA',namedCurve:'P-256'}, ECS={name:'ECDSA',hash:'SHA-256'};
   const b64=buf=>{let s='';const a=new Uint8Array(buf);for(let i=0;i<a.length;i+=8192)s+=String.fromCharCode.apply(null,a.subarray(i,i+8192));return btoa(s);};
   const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
@@ -746,7 +746,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
   }
   const putDrive=(path,data,type='application/json')=>gx('PUT',`${path}:/content`,data instanceof Blob?data:new Blob([data],{type}),{headers:{'Content-Type':type}});
   async function initKeys(){
-    const ap='/me/drive/special/approot:/'+KEYF;let f=null;
+    const ap='/me/drive/root:/Apps/KHF-Leave/'+KEYF;let f=null;   // 본인 OneDrive의 Apps/KHF-Leave 폴더 (회사 계정은 앱 전용 폴더 권한을 지원하지 않음)
     try{f=await readDrive(ap);}catch(e){console.error(e);throw Object.assign(new Error('keys'),{code:'keys'});}
     if(f){const j=JSON.parse(new TextDecoder().decode(f.buf));
       K.enc=await crypto.subtle.importKey('jwk',j.encPriv,RSA,false,['unwrapKey']);K.sig=await crypto.subtle.importKey('jwk',j.sigPriv,ECD,false,['sign']);K.encPub=j.encPub;K.sigPub=j.sigPub;}
@@ -1098,7 +1098,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       return;
     }
     hideGate(); readyRes();
-    if(keyErr)setTimeout(()=>{try{notice('첨부파일 잠금용 보안 키를 준비하지 못했어요. 휴가 신청·결재는 그대로 쓸 수 있지만 첨부파일 올리기와 잠긴 첨부 보기는 안 돼요. 관리자에게 Files.ReadWrite.AppFolder 권한 동의를 확인해 달라고 요청해 주세요.');}catch{}},1500);
+    if(keyErr)setTimeout(()=>{try{notice('첨부파일 잠금용 보안 키를 준비하지 못했어요. 휴가 신청·결재는 그대로 쓸 수 있지만 첨부파일 올리기와 잠긴 첨부 보기는 안 돼요. 관리자에게 Files.ReadWrite 권한 동의와 내 OneDrive 사용 여부를 확인해 달라고 요청해 주세요.');}catch{}},1500);
     const housekeeping=async()=>{try{await fetchList('leaves');await resignProComp();}catch(e){console.warn(e);}try{await syncFiles();}catch(e){console.warn(e);}};
     setTimeout(housekeeping,4000);setInterval(()=>{if(document.visibilityState==='visible')housekeeping();},5*60*1000);
   })();
