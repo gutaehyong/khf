@@ -759,11 +759,14 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     if(!mine||fp(mine.enc)!==fp(K.encPub)||fp(mine.sig)!==fp(K.sigPub))await putDrive(`/sites/${SITE}/drive/root:/LeaveFiles/_pub/${encodeURIComponent(ME.email)}.json`,JSON.stringify({email:ME.email,enc:K.encPub,sig:K.sigPub,at:new Date().toISOString()}));
     K.pub[ME.email]={enc:K.encPub,sig:K.sigPub};
   }
+  const idCache={};
+  async function aadIdOf(email){if(email in idCache)return idCache[email];let v=null;try{v=(await gx('GET',`/users/${encodeURIComponent(email)}?$select=id`)).id;}catch{}return idCache[email]=v;}
+  async function sameUser(ident,email){const u=ident?.user||{};if(String(u.email||'').toLowerCase()===email)return true;const id=await aadIdOf(email);return !!id&&u.id===id;}
   async function pubOf(email,fresh){   // 본인이 직접 올린 공개 키만 믿는다
     if(!fresh&&email in K.pub)return K.pub[email];
     let f=null;try{f=await readDrive(`/sites/${SITE}/drive/root:/LeaveFiles/_pub/${encodeURIComponent(email)}.json`);}catch(e){console.warn(e);}
     let v=null;
-    if(f&&emailOf(f.it)===email&&modOf(f.it)===email){try{const j=JSON.parse(new TextDecoder().decode(f.buf));if(j.email===email)v={enc:j.enc,sig:j.sig};}catch{}}
+    if(f&&await sameUser(f.it.createdBy,email)&&await sameUser(f.it.lastModifiedBy,email)){try{const j=JSON.parse(new TextDecoder().decode(f.buf));if(j.email===email)v={enc:j.enc,sig:j.sig};}catch{}}
     K.pub[email]=v;return v;
   }
   const encKeyOf=async email=>{const p=await pubOf(email);return p?.enc?crypto.subtle.importKey('jwk',{kty:p.enc.kty,n:p.enc.n,e:p.enc.e,alg:p.enc.alg,ext:true},RSA,false,['wrapKey']):null;};
@@ -836,11 +839,11 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
   }
   async function resignProComp(){   // 관리자 화면: 서명 없는 인사정보·대체휴가 값을 서명하고, 서명 도입 시점을 기록
     if(!isAdm(ME.email)||!K.sig)return;
-    const cfg=docsOf('config').get('main');if(cfg?.signedSince)return;
+    const cfg=docsOf('config').get('main');if(!cfg||cfg.signedSince)return;
     for(const it of C('leaves').items){const t=it.fields?.Title;if(!t||t.includes('#'))continue;
       for(const [f,col] of [['Pro','pro'],['Comp','comp']]){const raw=it.fields?.[f];if(!raw)continue;let o;try{o=JSON.parse(raw);}catch{continue;}if(o&&o.__s===1)continue;
         try{await gx('PATCH',`/sites/${SITE}/lists/${LIDS.leaves}/items/${it.id}/fields`,{[f]:await signVal(t,f,o)});}catch(e){console.warn(e);}}}
-    await fetchList('config');const cur=docsOf('config').get('main')||{};
+    await fetchList('config');const cur=docsOf('config').get('main');if(!cur||!Array.isArray(cur.admins)||!cur.admins.length)return;
     await writeDoc('config','main',{...cur,signedSince:new Date().toISOString()});
     await notify('leaves');
   }
@@ -886,7 +889,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       return m;
     }
     const titles=new Set(items.map(it=>it.fields?.Title).filter(t=>t&&!t.includes('#')));
-    for(const t of titles){const it=pickItem(k,t);if(!it)continue;const d=parseData(it.fields?.Data,items,t,it);if(d!=null)m.set(t,d);}
+    for(const t of titles){const it=pickItem(k,t);if(!it)continue;const d=parseData(it.fields?.Data,items,t,SELF_LISTS.includes(k)?it:null);if(d!=null)m.set(t,d);}
     return m;
   }
   const listKeyOf=col=>(col==='pro'||col==='comp')?'leaves':col;
@@ -986,6 +989,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       const L=await lockBytes(await file.arrayBuffer());
       const item=await uploadBlob(`LeaveFiles/${name}`,L.blob);
       try{const {keys,kn}=await wrapFor(L.aes,recipientsFor(ME.email));
+        if(!keys[ME.email])throw Object.assign(new Error('keys'),{code:'graph'});   // 나도 못 여는 파일은 올리지 않는다
         await putDrive(keyPath(item.id),JSON.stringify({v:1,iv:L.iv,owner:ME.email,type:opts.type||file.type||'',keys,kn}));}
       catch(e){try{await gx('DELETE',`/sites/${SITE}/drive/items/${item.id}`);}catch{}throw e;}
       return {id:item.id,url:'',contentType:opts.type||file.type||'',sizeBytes:file.size};
@@ -1008,7 +1012,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
     async get(id){
       const its=(await hrLite()).filter(it=>{const t=it.fields?.Title||'';return t===id||t.startsWith(id+'#');}), full=[];
       for(const it of its) full.push(await gx('GET',`/sites/${SITE}/lists/${LIDS.hr}/items/${it.id}?$expand=fields($select=Title,Data)`));
-      const base=full.find(it=>it.fields.Title===id); return base?parseData(base.fields.Data,full,id,base):null;
+      const base=full.find(it=>it.fields.Title===id); return base?parseData(base.fields.Data,full,id):null;
     }
   };
   window.__fileUrl=async id=>{const it=await gx('GET',`/sites/${SITE}/drive/items/${id}?$select=id,name,webUrl`);return it.webUrl;};
@@ -1043,7 +1047,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
         LIDS[k]=l.id;
       }
       await fetchList('config');
-      if(!docsOf('config').get('main')){ADMINS=[ME.email];await writeDoc('config','main',{admins:[ME.email]});}
+      if(!docsOf('config').get('main')&&!C('config').items.some(it=>(it.fields?.Title||'')==='main')){ADMINS=[ME.email];await writeDoc('config','main',{admins:[ME.email]});}
       gate('목록을 만들었어요',`<p>마지막으로 SharePoint에서 목록 권한을 정하면 끝나요. 설치 안내서의 <b>"목록 권한 설정"</b> 단계를 따라 해 주세요.</p>
         <p>그다음 프로그램의 <b>관리 › 공휴일·설정 › 이관 파일 가져오기</b>로 기존 데이터를 불러오면 돼요.</p>`,[['프로그램 열기',()=>{hideGate();readyRes();}]]);
     }catch(e){
@@ -1073,11 +1077,7 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       gate('SharePoint에 연결하지 못했어요',`<p class="err">${e.status===403||e.status===404?'휴가 관리 사이트에 접근 권한이 없어요. 관리자에게 사이트 구성원으로 추가해 달라고 요청해 주세요.':esc(e.message)}</p>`,[['다시 시도',()=>location.reload()],['다른 계정으로 로그인',()=>MS.logoutRedirect(),true]]);
       return;
     }
-    try{await initKeys();}catch(e){
-      console.error(e);
-      gate('보안 키를 준비하지 못했어요',`<p class="err">첨부파일 잠금에 쓰는 개인 키를 OneDrive 앱 폴더에 만들지 못했어요. 관리자에게 이 앱의 <b>Files.ReadWrite.AppFolder</b> 권한 동의와 내 OneDrive 사용 여부를 확인해 달라고 요청해 주세요.</p>`,[['다시 시도',()=>location.reload()]]);
-      return;
-    }
+    let keyErr=null;try{await initKeys();}catch(e){console.error(e);keyErr=e;K.enc=null;K.sig=null;}   // 키가 없어도 휴가 관리는 열고, 첨부 잠금 기능만 쉰다
     // Leave_HR은 관리자만 볼 수 있어서 직원에게는 안 보이는 게 정상이에요.
     const missing=Object.keys(LISTS).filter(k=>k!=='hr'&&!LIDS[k]);
     if(missing.length&&!missing.includes('config')){
@@ -1089,11 +1089,16 @@ function(e){return e.hasOwnProperty("authorization_endpoint")&&e.hasOwnProperty(
       return;
     }
     try{await fetchList('config');}catch(e){console.error(e);}
+    if(!docsOf('config').get('main')&&C('config').items.some(it=>(it.fields?.Title||'')==='main')){
+      gate('설정 정보를 읽지 못했어요','<p class="err">SharePoint의 Leave_Config 목록에 설정이 있지만 읽지 못했어요. 데이터를 지키기 위해 여기서 멈췄어요. 관리자에게 알려 주세요.</p>',[['다시 시도',()=>location.reload()]]);
+      return;
+    }
     if(!docsOf('config').get('main')){
       gate('처음 설정',`<p>설정 정보가 아직 없어요. 지금 계정(${esc(ME.email)})을 관리자로 지정하고 시작할게요. 사이트 소유자 계정으로 진행해 주세요.</p><p class="msgline"></p>`,[['시작하기',b=>createLists(b)]]);
       return;
     }
     hideGate(); readyRes();
+    if(keyErr)setTimeout(()=>{try{notice('첨부파일 잠금용 보안 키를 준비하지 못했어요. 휴가 신청·결재는 그대로 쓸 수 있지만 첨부파일 올리기와 잠긴 첨부 보기는 안 돼요. 관리자에게 Files.ReadWrite.AppFolder 권한 동의를 확인해 달라고 요청해 주세요.');}catch{}},1500);
     const housekeeping=async()=>{try{await fetchList('leaves');await resignProComp();}catch(e){console.warn(e);}try{await syncFiles();}catch(e){console.warn(e);}};
     setTimeout(housekeeping,4000);setInterval(()=>{if(document.visibilityState==='visible')housekeeping();},5*60*1000);
   })();
