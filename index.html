@@ -1477,7 +1477,7 @@ function writeErr(e,el){
 
 /* ---------- 신청 폼 ---------- */
 function openFile(f){
-  if(window.__fileUrl){  // M365: SharePoint 보기 화면으로 열기 (보기·내려받기 모두 그 화면에서)
+  if(window.__fileUrl&&!window.__blob){  // M365: SharePoint 보기 화면으로 열기 (보기·내려받기 모두 그 화면에서)
     const w=window.open('about:blank','_blank');
     window.__fileUrl(f.id).then(u=>{if(w&&!w.closed)w.location.href=u;else location.href=u;})
       .catch(e=>{console.error(e);if(w&&!w.closed)w.close();notice(`파일을 열지 못했어요${e?.status===404?' (파일이 삭제됐어요)':e?.status===403?' (이 파일을 볼 권한이 없어요)':''}.`);});
@@ -1497,6 +1497,8 @@ function openFile(f){
   if((f.type||'').startsWith('image/')){
     const show=src=>{const img=h('img',{src,alt:f.name,style:'max-width:100%;max-height:75vh;display:block;margin:0 auto;border-radius:6px'});img.onerror=fail;body.replaceChildren(img);};
     if(window.__blob) getBlob2().then(b=>{url=URL.createObjectURL(b);show(url);}).catch(fail); else show('/_blob/'+f.id);
+  }else if(window.__blob&&!/pdf/i.test(f.type||'')&&!/\.pdf$/i.test(f.name||'')){
+    body.replaceChildren(h('p',{class:'muted'},'이 형식은 화면에서 바로 볼 수 없어요. 위의 [내려받기]를 눌러 열어 주세요.'));
   }else{
     getBlob2().then(b=>{url=URL.createObjectURL(new Blob([b],{type:'application/pdf'}));body.replaceChildren(h('iframe',{src:url,title:f.name,style:'width:100%;height:75vh;border:0;background:#fff;border-radius:6px'}),h('p',{class:'muted small'},'미리보기가 보이지 않으면 내려받기를 눌러 확인해 주세요.'));}).catch(fail);
   }
