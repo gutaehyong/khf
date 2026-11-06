@@ -1367,7 +1367,7 @@ function writeErr(e,el){
 function openFile(f){
   if(window.__fileUrl){  // M365: SharePoint 보기 화면으로 열기 (보기·내려받기 모두 그 화면에서)
     const w=window.open('about:blank','_blank');
-    window.__fileUrl(f.id).then(u=>{if(w&&!w.closed)w.location.href=u;else location.href=u;})
+    window.__fileUrl(f.id).then(u0=>{const u=u0+(u0.includes('?')?'&':'?')+'web=1';if(w&&!w.closed)w.location.href=u;else location.href=u;})  // web=1: 내려받지 않고 SharePoint 보기 화면으로 열기
       .catch(e=>{console.error(e);if(w&&!w.closed)w.close();notice(`파일을 열지 못했어요${e?.status===404?' (파일이 삭제됐어요)':e?.status===403?' (이 파일을 볼 권한이 없어요)':''}.`);});
     return;
   }
